@@ -43,7 +43,7 @@ app_info() {
     fonts) ids="Fonts" old_bins="fonts" deps="fontconfig pango tar xz" ;;
     archive) ids="Archive" old_bins="archive" deps="7zip" defaults=true ;;
     weather) ids="Weather" ;;
-    mail) ids="Mail" deps="webkitgtk-6.0 gnome-online-accounts" bins="nyx-mail nyx-maild" defaults=true ;;
+    mail) ids="Mail" deps="webkitgtk-6.0" bins="nyx-mail nyx-maild" defaults=true ;;
     capture) ids="Capture" deps="grim wl-clipboard tesseract gtk4-layer-shell tesseract-data-eng" bins="nyx-capture nyx-capture-glimpse" ;;
     pulse) ids="Pulse" bins="nyx-pulse nyx-pulse-glimpse" deps="mpv ffmpeg tlottie libsecret clang unzip gstreamer gst-plugins-base gst-plugins-good gst-plugin-pipewire libcanberra geoclue webkit2gtk-4.1 python-gobject libfido2" ;;
     office)

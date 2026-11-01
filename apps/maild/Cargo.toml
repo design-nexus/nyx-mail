@@ -15,12 +15,14 @@ path = "src/main.rs"
 futures = "0.3"
 gio = "0.22"
 glib = "0.22"
-nyx-accounts = { git = "https://github.com/design-nexus/nyx-core.git", rev = "52cba5e27a3dd5f00c780f53e423302b4b5f9c9c", features = ["credentials"] }
+nyx-accounts = { package = "nyx-accounts-service", path = "../../../nyx-accounts" }
 nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "52cba5e27a3dd5f00c780f53e423302b4b5f9c9c", default-features = false }
 nyx-mail-core = { path = "../../crates/nyx-mail-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+
+url = "2"
 
 [dev-dependencies]
 nyx-mail-core = { path = "../../crates/nyx-mail-core", features = ["testing"] }

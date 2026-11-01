@@ -1,6 +1,6 @@
-//! Mail accounts: GNOME Online Accounts with Mail switched on, with IMAP
+//! Native Mail accounts with Mail enabled, with IMAP
 //! settings or (Microsoft 365, Outlook.com) Microsoft Graph. Credentials come
-//! from GOA for each connection and are never kept.
+//! from Nyx Accounts private credential sessions.
 //!
 //! Tests (and only tests) can add accounts from a JSON file named by
 //! `NYX_MAIL_TEST_ACCOUNTS`: `[{"id", "address", "name", "imap": {host, port,
@@ -35,14 +35,14 @@ pub enum Backend {
 
 #[derive(Clone)]
 enum Source {
-    Goa { account: Box<nyx_accounts::Account>, oauth: bool },
+    Native { id: String, oauth: bool },
     Test { password: String },
 }
 
 impl std::fmt::Debug for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Goa { oauth, .. } => write!(f, "Goa {{ oauth: {oauth} }}"),
+            Self::Native { oauth, .. } => write!(f, "Native {{ oauth: {oauth} }}"),
             Self::Test { .. } => f.write_str("Test"),
         }
     }
@@ -56,65 +56,33 @@ pub struct Skipped {
     pub reason: String,
 }
 
-fn security(tls: nyx_accounts::mail::Tls) -> Option<Security> {
-    match tls {
-        nyx_accounts::mail::Tls::Implicit => Some(Security::Implicit),
-        nyx_accounts::mail::Tls::StartTls => Some(Security::StartTls),
-        nyx_accounts::mail::Tls::None => None,
-    }
+fn server(endpoint: &str, user: &str) -> Option<Server> {
+    let uri = url::Url::parse(endpoint).ok()?;
+    let (security, default_port) = match uri.scheme() {
+        "imaps" => (Security::Implicit, 993),
+        "imap+starttls" => (Security::StartTls, 143),
+        "smtps" => (Security::Implicit, 465),
+        "smtp+starttls" => (Security::StartTls, 587),
+        _ => return None,
+    };
+    Some(Server { host: uri.host_str()?.into(), port: uri.port().unwrap_or(default_port), security, user: user.into() })
 }
 
-fn server(s: &nyx_accounts::mail::Server) -> Option<Server> {
-    Some(Server { host: s.host.clone(), port: s.port, security: security(s.tls)?, user: s.user.clone() })
-}
-
-/// Every usable mail account, and the ones that can't be used (and why).
 pub fn discover(client: Option<&nyx_accounts::Client>) -> (Vec<MailAccount>, Vec<Skipped>) {
     let mut accounts = Vec::new();
     let mut skipped = Vec::new();
     if let Some(client) = client {
-        for account in client.with_service(&nyx_accounts::Service::Mail).unwrap_or_default() {
-            if account.provider_type == "ms_graph" {
-                accounts.push(MailAccount {
-                    id: account.id.clone(),
-                    address: account.identity.clone(),
-                    name: String::new(),
-                    backend: Backend::Graph { base: nyx_mail_core::graph::GRAPH.into() },
-                    source: Source::Goa { oauth: true, account: Box::new(account) },
-                });
-                continue;
-            }
-            let settings = match client.mail_settings(&account) {
-                Ok(Some(s)) => s,
-                Ok(None) => {
-                    let reason = "This account has no mail server settings.";
-                    skipped.push(Skipped { id: account.id.clone(), address: account.label().to_string(), reason: reason.into() });
-                    continue;
-                }
-                Err(e) => {
-                    skipped.push(Skipped { id: account.id.clone(), address: account.label().to_string(), reason: e.to_string() });
-                    continue;
-                }
+        for account in client.list().unwrap_or_default().into_iter().filter(|a| a.enabled.contains(&nyx_accounts::Service::Mail)) {
+            let backend = if account.provider == "microsoft_personal" {
+                Backend::Graph { base: nyx_mail_core::graph::GRAPH.into() }
+            } else {
+                let Some(imap) = account.endpoints.get("imap").and_then(|s| server(s, &account.identity)) else {
+                    skipped.push(Skipped { id: account.id.clone(), address: account.identity.clone(), reason: "Configure a secure IMAP endpoint in Online Accounts.".into() }); continue;
+                };
+                Backend::Imap { smtp: account.endpoints.get("smtp").and_then(|s| server(s, &account.identity)), gmail: account.provider == "google", imap }
             };
-            let Some(imap) = settings.imap.as_ref().and_then(server) else {
-                skipped.push(Skipped {
-                    id: account.id.clone(),
-                    address: settings.address.clone(),
-                    reason: "Mail needs a server that uses TLS.".into(),
-                });
-                continue;
-            };
-            accounts.push(MailAccount {
-                id: account.id.clone(),
-                address: settings.address.clone(),
-                name: settings.name.clone(),
-                backend: Backend::Imap {
-                    smtp: settings.smtp.as_ref().and_then(server),
-                    gmail: account.provider_type == "google" || imap.host.ends_with("gmail.com"),
-                    imap,
-                },
-                source: Source::Goa { oauth: settings.auth == nyx_accounts::mail::MailAuth::OAuth2, account: Box::new(account) },
-            });
+            let oauth = matches!(account.provider.as_str(), "google" | "microsoft_personal");
+            accounts.push(MailAccount { id: account.legacy_id.clone().unwrap_or_else(|| account.id.clone()), address: account.identity, name: account.label, backend, source: Source::Native { id: account.id, oauth } });
         }
     }
     accounts.extend(test_accounts());
@@ -200,27 +168,18 @@ impl MailAccount {
         self.auth(client, "smtp-password")
     }
 
-    fn auth(&self, client: Option<&nyx_accounts::Client>, password_id: &str) -> Result<Auth, String> {
+    fn auth(&self, client: Option<&nyx_accounts::Client>, _password_id: &str) -> Result<Auth, String> {
         match &self.source {
             Source::Test { password } => Ok(Auth::Password(password.clone())),
-            Source::Goa { account, oauth } => {
-                let client = client.ok_or("Online Accounts isn't available.")?;
-                if *oauth {
-                    let token = client.access_token(account).map_err(|e| e.to_string())?;
-                    Ok(Auth::OAuth2(token.token.expose().to_string()))
-                } else {
-                    let secret = client.password(account, password_id).map_err(|e| e.to_string())?;
-                    Ok(Auth::Password(secret.expose().to_string()))
-                }
+            Source::Native { id, oauth } => {
+                let client = client.ok_or("Online Accounts is unavailable")?;
+                let credentials = client.credential(id, nyx_accounts::Service::Mail).map_err(|_| "Account needs sign-in or its service is disabled".to_string())?;
+                if *oauth { Ok(Auth::OAuth2(credentials.access_token.clone())) }
+                else { Ok(Auth::Password(credentials.password.clone())) }
             }
         }
     }
-
-    /// Asks GOA to check the account's sign-in (after the server refused it), so
-    /// Settings shows "needs sign-in".
     pub fn check_sign_in(&self, client: Option<&nyx_accounts::Client>) {
-        if let (Source::Goa { account, .. }, Some(client)) = (&self.source, client) {
-            let _ = client.ensure_credentials(&account.path);
-        }
+        if let (Source::Native{id,..},Some(client))=(&self.source,client){let _=client.report_auth_failure(id,nyx_accounts::Service::Mail);}
     }
 }
