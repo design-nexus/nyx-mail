@@ -10,12 +10,15 @@ use crate::window;
 use nyx_core::control::{Reply, text};
 use nyx_mail_core::db::{ListItem, Role};
 use nyx_mail_core::flags;
-use nyx_mail_core::send::{self, Draft};
+use nyx_mail_core::send::{self, Draft, FileAttachment};
 use serde_json::{Value, json};
 
 const MAX: usize = 50;
 /// A message's text is cut here (a model reads it, not a person).
 const MAX_TEXT: usize = 20_000;
+/// Most servers refuse a message over this, as compose's own picker warns.
+const MAX_FILE: u64 = 25_000_000;
+const MAX_FILES: usize = 20;
 
 pub fn tools() -> Value {
     json!([
@@ -23,8 +26,37 @@ pub fn tools() -> Value {
         {"name": "mail.inbox", "description": "The newest conversations in every inbox (only unread ones with unread=true).", "inputSchema": {"type": "object", "properties": {"unread": {"type": "boolean"}, "limit": {"type": "integer"}}}},
         {"name": "mail.read", "description": "Read a message (by id from mail.search or mail.inbox): sender, recipients, date, subject, text and attachment names.", "inputSchema": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}},
         {"name": "mail.open", "description": "Show a message's conversation in the Mail window.", "inputSchema": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}},
-        {"name": "mail.draft", "description": "Open a new message, filled in, for the user to check and send themselves (it is not sent). Give reply_to (a message id) to answer a message.", "inputSchema": {"type": "object", "properties": {"to": {"type": "string", "description": "Addresses, comma-separated: \"Sam Lee <sam@example.com>, ann@example.com\""}, "cc": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}, "reply_to": {"type": "integer"}}}},
+        {"name": "mail.draft", "description": "Open a new message, filled in, for the user to check and send themselves (it is not sent). Give reply_to (a message id) to answer a message.", "inputSchema": {"type": "object", "properties": {"to": {"type": "string", "description": "Addresses, comma-separated: \"Sam Lee <sam@example.com>, ann@example.com\""}, "cc": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}, "reply_to": {"type": "integer"}, "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files in the home folder to attach, by path; each at most 25 MB. They are read now."}}}},
     ])
+}
+
+/// The files to attach: regular files inside the home folder, read now, so the
+/// caller may remove them once the draft is open.
+fn attachments(list: &Value) -> Result<Vec<FileAttachment>, String> {
+    let Some(list) = list.as_array() else { return Ok(Vec::new()) };
+    if list.len() > MAX_FILES {
+        return Err(format!("At most {MAX_FILES} attachments"));
+    }
+    list.iter()
+        .map(|p| {
+            let input = p.as_str().ok_or("attachments are paths")?;
+            let path = nyx_core::control::home_path(input)?;
+            let meta = std::fs::metadata(&path).map_err(|e| format!("{input}: {e}"))?;
+            if !meta.is_file() {
+                return Err(format!("{input} isn't a file"));
+            }
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "attachment".into());
+            if meta.len() > MAX_FILE {
+                return Err(format!("{name} is over 25 MB, which most servers refuse"));
+            }
+            let bytes = std::fs::read(&path).map_err(|e| format!("{name}: {e}"))?;
+            let (guess, _) = gtk::gio::content_type_guess(Some(&path), &bytes[..bytes.len().min(4096)]);
+            let mime = gtk::gio::content_type_get_mime_type(&guess)
+                .map(|m| m.to_string())
+                .unwrap_or_else(|| "application/octet-stream".into());
+            Ok(FileAttachment { name, mime, bytes })
+        })
+        .collect()
 }
 
 fn item(m: &ListItem) -> Value {
@@ -100,6 +132,7 @@ fn answer(name: &str, args: &Value) -> Result<Value, String> {
                 cc: people("cc")?,
                 subject: args["subject"].as_str().unwrap_or("").chars().take(500).collect(),
                 body: args["body"].as_str().unwrap_or("").chars().take(MAX_TEXT).collect(),
+                attachments: attachments(&args["attachments"])?,
                 ..Draft::default()
             };
             let start = match args["reply_to"].as_i64() {
