@@ -15,7 +15,7 @@ path = "src/main.rs"
 futures = "0.3"
 gio = "0.22"
 glib = "0.22"
-nyx-accounts = { package = "nyx-accounts-service", path = "../../../nyx-accounts" }
+nyx-accounts = { package = "nyx-accounts-service", git = "https://github.com/design-nexus/nyx-accounts.git", rev = "ecbe31cbfe6688dd5b3d7803c58e433715427c57" }
 nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "52cba5e27a3dd5f00c780f53e423302b4b5f9c9c", default-features = false }
 nyx-mail-core = { path = "../../crates/nyx-mail-core" }
 serde = { version = "1", features = ["derive"] }
