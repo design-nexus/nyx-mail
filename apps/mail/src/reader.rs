@@ -493,6 +493,10 @@ fn attachments_for(card: &gtk::Box, m: &MessageRow, attachments: &[Attachment]) 
             let (id, index, file) = (m.id, a.index, a.name.clone());
             open.connect_clicked(move |_| open_attachment(id, index, &file));
             chip.append(&open);
+            let share = widgets::icon_button("send-to-symbolic", &format!("Share “{}”", a.name));
+            let (id, index, file, mime) = (m.id, a.index, a.name.clone(), a.mime.clone());
+            share.connect_clicked(move |_| share_attachment(id, index, &file, &mime));
+            chip.append(&share);
         }
         flow.insert(&chip, -1);
     }
@@ -579,6 +583,31 @@ fn save_attachment(id: i64, index: usize, name: &str) {
             Err(e) => window::toast(&format!("Couldn't save it: {e}")),
         }
     });
+}
+
+/// Nyx Share's Share Sheet for an attachment, sent from memory through a
+/// read-only descriptor; nothing is saved.
+fn share_attachment(id: i64, index: usize, name: &str, mime: &str) {
+    let Some(bytes) = attachment_bytes(id, index) else {
+        window::toast("That attachment isn't on this computer.");
+        return;
+    };
+    let (name, mime) = (safe_name(name), mime.to_string());
+    nyx_core::cmd::background(
+        move || {
+            use nyx_share_client::{Client, Content, ContentKind, ShareOptions};
+            let kind = if mime.starts_with("image/") { ContentKind::Image } else { ContentKind::File };
+            let mut content = Content::new();
+            content.bytes(kind, &name, Some(&mime), &bytes).map_err(|e| e.to_string())?;
+            let options = ShareOptions { app_name: Some("Mail".into()), ..Default::default() };
+            Client::connect().and_then(|c| c.share(&content, &options)).map(|_| ()).map_err(|e| e.to_string())
+        },
+        |result: Result<(), String>| {
+            if let Err(e) = result {
+                window::toast(&format!("Couldn't share it: {e}"));
+            }
+        },
+    );
 }
 
 /// Opens a copy (readable by this user only) with the default app.
