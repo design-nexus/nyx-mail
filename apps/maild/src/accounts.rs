@@ -110,6 +110,7 @@ struct TestAccount {
 }
 
 fn test_accounts() -> Vec<MailAccount> {
+    if !cfg!(debug_assertions) { return Vec::new(); }
     let Some(path) = std::env::var_os("NYX_MAIL_TEST_ACCOUNTS") else { return Vec::new() };
     let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
     let list: Vec<TestAccount> = serde_json::from_str(&text).unwrap_or_default();

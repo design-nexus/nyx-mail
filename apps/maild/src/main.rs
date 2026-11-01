@@ -41,6 +41,7 @@ const XML: &str = r#"<node><interface name="io.github.design_nexus.nyx.MailEngin
 
 thread_local! {
     static CONN: RefCell<Option<gio::DBusConnection>> = const { RefCell::new(None) };
+    static NOTIFICATION_CONN: RefCell<Option<gio::DBusConnection>> = const { RefCell::new(None) };
     /// Notifications shown, and the message each opens.
     static SHOWN: RefCell<std::collections::HashMap<u32, i64>> = RefCell::new(std::collections::HashMap::new());
 }
@@ -76,7 +77,9 @@ fn main() {
 
 fn serve(conn: &gio::DBusConnection, engine: tokio::sync::mpsc::UnboundedSender<Command>) {
     CONN.with(|c| *c.borrow_mut() = Some(conn.clone()));
-    watch_notifications(conn);
+    let desktop = notification_bus();
+    if let Some(desktop) = &desktop { watch_notifications(desktop); }
+    NOTIFICATION_CONN.with(|c| *c.borrow_mut() = desktop);
     let info = gio::DBusNodeInfo::for_xml(XML).expect("interface XML").lookup_interface(INTERFACE).expect("interface");
     let registered = conn
         .register_object(PATH, &info)
@@ -256,7 +259,8 @@ fn notify(conn: &gio::DBusConnection, list: &[(i64, String, String)]) {
 }
 
 /// Shows a notification; clicking it opens `message` in Mail.
-fn show(conn: &gio::DBusConnection, summary: &str, body: &str, message: Option<i64>) {
+fn show(_engine_conn: &gio::DBusConnection, summary: &str, body: &str, message: Option<i64>) {
+    let Some(conn) = NOTIFICATION_CONN.with(|c|c.borrow().clone()) else {return};
     let mut hints = std::collections::HashMap::<String, glib::Variant>::new();
     hints.insert("desktop-entry".into(), "io.github.design_nexus.nyx.Mail".to_variant());
     hints.insert("category".into(), "email.arrived".to_variant());
@@ -322,4 +326,16 @@ fn open_mail(message: i64) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+}
+
+// Preview engine traffic stays private; desktop notifications use the original bus.
+fn notification_bus() -> Option<gio::DBusConnection> {
+    match std::env::var("NYX_ACCOUNTS_SECRET_BUS_ADDRESS") {
+        Ok(address) if address.starts_with("unix:") => gio::DBusConnection::for_address_sync(
+            &address, gio::DBusConnectionFlags::AUTHENTICATION_CLIENT | gio::DBusConnectionFlags::MESSAGE_BUS_CONNECTION,
+            None::<&gio::DBusAuthObserver>, gio::Cancellable::NONE,
+        ).ok(),
+        Ok(_) => None,
+        Err(_) => gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).ok(),
+    }
 }
