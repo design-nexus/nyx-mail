@@ -1790,7 +1790,7 @@ dependencies = [
 [[package]]
 name = "nyx-accounts-service"
 version = "0.1.0"
-source = "git+https://github.com/design-nexus/nyx-accounts.git?rev=ecbe31cbfe6688dd5b3d7803c58e433715427c57#ecbe31cbfe6688dd5b3d7803c58e433715427c57"
+source = "git+https://github.com/design-nexus/nyx-accounts.git?rev=afdc1482cb910746f942556090870d3ec083dd34#afdc1482cb910746f942556090870d3ec083dd34"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -1823,6 +1823,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nyx-core"
+version = "0.1.0"
+source = "git+https://github.com/design-nexus/nyx-core.git?rev=9dc196245bbf0ccc93b8bf04ac61bb476b85e4d5#9dc196245bbf0ccc93b8bf04ac61bb476b85e4d5"
+dependencies = [
+ "anyhow",
+ "gtk4",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "nyx-mail"
 version = "0.1.1"
 dependencies = [
@@ -1830,7 +1842,7 @@ dependencies = [
  "glib",
  "gtk4",
  "nyx-accounts-service",
- "nyx-core",
+ "nyx-core 0.1.0 (git+https://github.com/design-nexus/nyx-core.git?rev=9dc196245bbf0ccc93b8bf04ac61bb476b85e4d5)",
  "nyx-mail-core",
  "nyx-share-client",
  "nyx-theme",
@@ -1882,7 +1894,7 @@ dependencies = [
  "gio",
  "glib",
  "nyx-accounts-service",
- "nyx-core",
+ "nyx-core 0.1.0 (git+https://github.com/design-nexus/nyx-core.git?rev=9dc196245bbf0ccc93b8bf04ac61bb476b85e4d5)",
  "nyx-mail-core",
  "serde",
  "serde_json",
@@ -1927,7 +1939,7 @@ version = "0.1.0"
 source = "git+https://github.com/design-nexus/nyx-design.git?rev=5c4172947c18876c05d3173d2ebe2a1e434b098b#5c4172947c18876c05d3173d2ebe2a1e434b098b"
 dependencies = [
  "gtk4",
- "nyx-core",
+ "nyx-core 0.1.0 (git+https://github.com/design-nexus/nyx-core.git?rev=52cba5e27a3dd5f00c780f53e423302b4b5f9c9c)",
  "serde",
  "toml",
 ]
@@ -1938,7 +1950,7 @@ version = "0.1.0"
 source = "git+https://github.com/design-nexus/nyx-design.git?rev=5c4172947c18876c05d3173d2ebe2a1e434b098b#5c4172947c18876c05d3173d2ebe2a1e434b098b"
 dependencies = [
  "gtk4",
- "nyx-core",
+ "nyx-core 0.1.0 (git+https://github.com/design-nexus/nyx-core.git?rev=52cba5e27a3dd5f00c780f53e423302b4b5f9c9c)",
  "nyx-theme",
 ]
 

@@ -73,6 +73,14 @@ pub fn discover(client: Option<&nyx_accounts::Client>) -> (Vec<MailAccount>, Vec
     let mut skipped = Vec::new();
     if let Some(client) = client {
         for account in client.list().unwrap_or_default().into_iter().filter(|a| a.enabled.contains(&nyx_accounts::Service::Mail)) {
+            if matches!(account.status.as_str(), "needs_sign_in" | "authorizing" | "removing") {
+                skipped.push(Skipped {
+                    id: account.legacy_id.clone().unwrap_or_else(|| account.id.clone()),
+                    address: account.identity.clone(),
+                    reason: "Sign in through Settings → Online Accounts.".into(),
+                });
+                continue;
+            }
             let backend = if account.provider == "microsoft_personal" {
                 Backend::Graph { base: nyx_mail_core::graph::GRAPH.into() }
             } else {
