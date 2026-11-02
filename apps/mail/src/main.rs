@@ -46,7 +46,11 @@ fn main() -> glib::ExitCode {
         // SAFETY: still single-threaded; nothing else reads the environment yet.
         unsafe { std::env::set_var("GSK_RENDERER", "ngl") };
     }
-    let app = gtk::Application::builder().application_id(APP_ID).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
+    // NYX_MAIL_APP_ID runs a test copy under its own ID, beside the real one.
+    let id = std::env::var("NYX_MAIL_APP_ID").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| APP_ID.to_string());
+    // Windows without an application, like the compose window, take their Wayland app ID from this.
+    glib::set_prgname(Some(id.as_str()));
+    let app = gtk::Application::builder().application_id(id.as_str()).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
     app.connect_startup(|app| {
         theme::install();
         // Nyx Assistant searches, reads and starts messages through this.
