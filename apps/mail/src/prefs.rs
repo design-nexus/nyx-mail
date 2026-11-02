@@ -38,6 +38,8 @@ pub struct Prefs {
     pub open_first: bool,
     /// Other addresses an account sends from (its provider must allow them).
     pub aliases: Vec<Alias>,
+    /// Status notices dismissed until their condition clears or changes.
+    pub dismissed_status_banners: Vec<String>,
 }
 
 /// An address an account can send from besides its own.
@@ -69,6 +71,7 @@ impl Default for Prefs {
             pinned: Vec::new(),
             open_first: true,
             aliases: Vec::new(),
+            dismissed_status_banners: Vec::new(),
         }
     }
 }

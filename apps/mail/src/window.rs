@@ -1100,53 +1100,74 @@ fn rebuild_banners() {
         banners.remove(&child);
     }
     if let Some(status) = &status {
+        let dismissed: HashSet<String> = prefs::get().dismissed_status_banners.into_iter().collect();
+        let mut active = HashSet::new();
+        let mut notice = |text: String, warning: bool, action: Option<gtk::Button>| {
+            active.insert(text.clone());
+            if dismissed.contains(&text) {
+                return;
+            }
+            let banner = widgets::banner(&text, warning);
+            if let Some(action) = action {
+                banner.append(&action);
+            }
+            let close = widgets::icon_button("window-close-symbolic", "Dismiss message");
+            close.set_valign(gtk::Align::Center);
+            close.connect_clicked(move |_| {
+                prefs::update(|p| {
+                    if !p.dismissed_status_banners.contains(&text) {
+                        p.dismissed_status_banners.push(text.clone());
+                    }
+                });
+                rebuild_banners();
+            });
+            banner.append(&close);
+            banners.append(&banner);
+        };
         for a in &status.accounts {
             let Some(error) = &a.error else { continue };
-            let sign_in = error.contains("Sign in again");
             let text = format!("<b>{}</b>: {}", glib::markup_escape_text(&a.address), glib::markup_escape_text(error));
-            let banner = widgets::banner(&text, true);
-            if sign_in {
+            let action = if error.contains("Sign in again") {
                 let button = gtk::Button::with_label("Sign in");
                 button.set_valign(gtk::Align::Center);
                 button.connect_clicked(|_| open_online_accounts());
-                banner.append(&button);
-            }
-            banners.append(&banner);
+                Some(button)
+            } else {
+                None
+            };
+            notice(text, true, action);
         }
         for s in &status.skipped {
-            let text = format!(
+            notice(format!(
                 "<b>{}</b> can't be used for mail: {}",
                 glib::markup_escape_text(&s.address),
                 glib::markup_escape_text(&s.reason)
-            );
-            banners.append(&widgets::banner(&text, false));
+            ), false, None);
         }
         if status.accounts.iter().any(|a| a.offline) && !status.accounts.iter().all(|a| a.offline) {
             let names: Vec<&str> = status.accounts.iter().filter(|a| a.offline).map(|a| a.address.as_str()).collect();
-            banners.append(&widgets::banner(
-                &format!("Can't reach {}. Showing saved mail.", glib::markup_escape_text(&names.join(", "))),
-                false,
-            ));
+            notice(format!("Can't reach {}. Showing saved mail.", glib::markup_escape_text(&names.join(", "))), false, None);
         } else if !status.accounts.is_empty() && status.accounts.iter().all(|a| a.offline) {
-            banners.append(&widgets::banner(
-                "Offline. Showing saved mail; changes and sent mail go when you're back online.",
-                false,
-            ));
+            notice("Offline. Showing saved mail; changes and sent mail go when you're back online.".into(), false, None);
         }
-        // Accounts removed from Online Accounts whose mail is still here.
-        for a in data::accounts().into_iter().filter(|a| !status.accounts.iter().any(|s| s.id == a.id)) {
+        // A profile awaiting sign-in is still configured, not a removed account.
+        for a in data::accounts().into_iter().filter(|a| {
+            !status.accounts.iter().any(|s| s.id == a.id)
+                && !status.skipped.iter().any(|s| s.address.eq_ignore_ascii_case(&a.address))
+        }) {
             let text = format!(
                 "<b>{}</b> was removed from Online Accounts. Its mail is still on this computer.",
                 glib::markup_escape_text(&a.address)
             );
-            let banner = widgets::banner(&text, false);
             let button = gtk::Button::with_label("Forget");
             button.set_tooltip_text(Some("Remove its mail from this computer (the server keeps it)"));
             button.set_valign(gtk::Align::Center);
             let (id, address) = (a.id.clone(), a.address.clone());
             button.connect_clicked(move |_| forget_account(&id, &address));
-            banner.append(&button);
-            banners.append(&banner);
+            notice(text, false, Some(button));
+        }
+        if dismissed.iter().any(|key| !active.contains(key)) {
+            prefs::update(|p| p.dismissed_status_banners.retain(|key| active.contains(key)));
         }
     }
     banners.set_visible(banners.first_child().is_some());
