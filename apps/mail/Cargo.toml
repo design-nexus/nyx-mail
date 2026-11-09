@@ -19,8 +19,8 @@ nyx-accounts = { package = "nyx-accounts-service", git = "https://github.com/des
 nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "394ddf8193797cd1f420fac98b097d04fa75f0e2" }
 nyx-share-client = { git = "https://github.com/design-nexus/nyx-share.git", rev = "3923640afdcbfe09fa4c1faaf7d952db071f3812" }
 nyx-mail-core = { path = "../../crates/nyx-mail-core" }
-nyx-theme = { git = "https://github.com/design-nexus/nyx-design.git", rev = "d2398b346b6bc414cc031b0a08a1b2a9a0f6ee2e" }
-nyx-ui = { git = "https://github.com/design-nexus/nyx-design.git", rev = "d2398b346b6bc414cc031b0a08a1b2a9a0f6ee2e" }
+nyx-theme = { git = "https://github.com/design-nexus/nyx-design.git", rev = "40db521bab468d54f18f65c6aabd7fc8533d6a4d" }
+nyx-ui = { git = "https://github.com/design-nexus/nyx-design.git", rev = "40db521bab468d54f18f65c6aabd7fc8533d6a4d" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 webkit6 = { version = "0.6.1", features = ["v2_50"] }
