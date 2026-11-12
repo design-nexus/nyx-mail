@@ -1,5 +1,5 @@
-/* Mail on Nyx 2.0: only Mail's own parts. One surface: spacing and soft fills
-   separate the folders, the list and the reader, never lines. */
+/* Mail on Nyx 2.0: only Mail's own parts. The frame (nyx_ui::frame) holds the
+   folders beside the sheet; a line splits the list from the reader. */
 
 window.mail-window .app-header button.accent-action {
   color: @theme_accent;

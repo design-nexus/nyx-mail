@@ -1641,6 +1641,7 @@ fn build(app: &gtk::Application) {
     let panes = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     panes.set_vexpand(true);
     panes.append(&list_column);
+    panes.append(&nyx_ui::frame::pane_line(gtk::Orientation::Vertical));
     panes.append(&reader_column);
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -1648,11 +1649,6 @@ fn build(app: &gtk::Application) {
     content.set_hexpand(true);
     content.append(&banners);
     content.append(&panes);
-
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    body.set_vexpand(true);
-    body.append(&nav);
-    body.append(&content);
 
     // The header: the app and the folder you're in, the sidebar toggle, search,
     // and checking and writing mail.
@@ -1667,14 +1663,10 @@ fn build(app: &gtk::Application) {
     header.end.append(&new);
     header.end.append(&nyx_ui::chrome::settings_button(settings_dialog::open));
 
-    let frame = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    frame.add_css_class("window-frame");
-    frame.append(&header.root);
-    frame.append(&body);
-
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&frame));
-    window.set_child(Some(&overlay));
+    let frame = nyx_ui::frame::AppFrame::new(&header.root);
+    frame.set_sidebar(&nav);
+    frame.set_page(&content);
+    let overlay = frame.install(&window);
     install_keys(&window, &search);
     {
         let list_view = list_view.clone();
