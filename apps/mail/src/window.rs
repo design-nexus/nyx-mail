@@ -1317,7 +1317,7 @@ pub(crate) fn rebuild_nav() {
     let accounts = data::accounts();
     let several = accounts.len() > 1;
     let heading = group_label(if several { "All accounts" } else { "Mailboxes" }, true, false);
-    nyx_ui::sidebar::set_section(&heading, "mailboxes");
+    nyx_ui::sidebar::set_section(&heading, nyx_ui::sidebar::ACCENT_SECTION);
     list_box.append(&heading);
     let drafts = data::drafts().len() as i64;
     for (role, key) in
