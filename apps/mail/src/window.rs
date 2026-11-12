@@ -1316,7 +1316,9 @@ pub(crate) fn rebuild_nav() {
     let active = |v: &View| !search_on && view == *v;
     let accounts = data::accounts();
     let several = accounts.len() > 1;
-    list_box.append(&group_label(if several { "All accounts" } else { "Mailboxes" }, true, false));
+    let heading = group_label(if several { "All accounts" } else { "Mailboxes" }, true, false);
+    nyx_ui::sidebar::set_section(&heading, "mailboxes");
+    list_box.append(&heading);
     let drafts = data::drafts().len() as i64;
     for (role, key) in
         [(Role::Inbox, "1"), (Role::Drafts, "2"), (Role::Sent, "3"), (Role::Archive, "4"), (Role::Junk, ""), (Role::Trash, "")]
@@ -1374,7 +1376,9 @@ pub(crate) fn rebuild_nav() {
     let pins: Vec<&Mailbox> =
         prefs::get().pinned.iter().filter_map(|k| mailboxes.iter().find(|m| prefs::pin_key(&m.account, &m.name) == *k)).collect();
     if !pins.is_empty() {
-        list_box.append(&group_label("Pinned", false, false));
+        let heading = group_label("Pinned", false, false);
+        nyx_ui::sidebar::set_section(&heading, "pinned");
+        list_box.append(&heading);
         for m in pins {
             let address = accounts.iter().find(|a| a.id == m.account).map(|a| a.address.as_str()).unwrap_or("");
             let tooltip = if several { format!("{} · {address}", m.name) } else { m.name.clone() };
@@ -1389,7 +1393,10 @@ pub(crate) fn rebuild_nav() {
     let collapsed = prefs::get().collapsed_accounts;
     for (i, account) in accounts.iter().enumerate() {
         let folded = collapsed.contains(&account.id);
-        list_box.append(&account_header(account, i == 0, folded));
+        // Each account in the next swatch, in the accounts' order.
+        let heading = account_header(account, i == 0, folded);
+        nyx_ui::sidebar::set_section(&heading, &nyx_ui::sidebar::rotating_section(i));
+        list_box.append(&heading);
         if folded {
             continue;
         }
