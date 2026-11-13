@@ -55,6 +55,14 @@ fn reading(page: &Page) {
             window::reload();
         });
     group.add(&row);
+    let (row, _) = widgets::choice_row(
+        "Imbox looks like",
+        "Cards with what's new first, or the conversation list beside the reader, as in Paper Trail.",
+        opts(&[("cards", "Cards"), ("list", "List and reader")]),
+        if prefs.imbox_layout == "list" { "list" } else { "cards" },
+        |id| window::set_imbox_layout(&id),
+    );
+    group.add(&row);
     let (row, _) = widgets::switch_row(
         "Screener",
         "Mail from people who haven't written before waits in the Screener until you let them in. People you've written to, and everyone who wrote before, come straight in.",

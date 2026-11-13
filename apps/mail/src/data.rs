@@ -46,6 +46,8 @@ pub enum View {
     /// Inbox mail from senders not let in yet.
     Screener,
     Snoozed,
+    /// Conversations with a flagged message, wherever they are.
+    SetAside,
     Scheduled,
     FollowUps,
     Senders,
@@ -59,6 +61,7 @@ impl View {
             Self::Kind(kind) => kind.id().to_string(),
             Self::Screener => "screener".into(),
             Self::Snoozed => "snoozed".into(),
+            Self::SetAside => "set-aside".into(),
             Self::Scheduled => "scheduled".into(),
             Self::FollowUps => "follow-ups".into(),
             Self::Senders => "senders".into(),
@@ -72,6 +75,7 @@ impl View {
         match id {
             "screener" => Self::Screener,
             "snoozed" => Self::Snoozed,
+            "set-aside" => Self::SetAside,
             "scheduled" => Self::Scheduled,
             "follow-ups" => Self::FollowUps,
             "senders" => Self::Senders,
@@ -87,7 +91,7 @@ impl View {
             Self::Mailbox(id) => vec![*id],
             Self::Kind(_) | Self::Screener | Self::Senders => role(Role::Inbox),
             // Wherever the conversation is (not Trash, Junk or Sent).
-            Self::Snoozed | Self::FollowUps => all
+            Self::Snoozed | Self::SetAside | Self::FollowUps => all
                 .iter()
                 .filter(|m| {
                     !matches!(m.role, Some(Role::Trash | Role::Junk | Role::Sent | Role::Drafts | Role::All | Role::Flagged))
@@ -121,9 +125,27 @@ impl View {
         match self {
             Self::Kind(kind) => Filter { kind: Some(*kind), screen, ..Filter::default() },
             Self::Snoozed => Filter { snoozed: true, ..Filter::default() },
+            Self::SetAside => Filter { flagged: true, ..Filter::default() },
             _ => Filter { screen, ..Filter::default() },
         }
     }
+
+    /// Shown as a page of its own (people, cards, senders) rather than a list
+    /// beside the reader.
+    pub fn is_page(&self) -> bool {
+        match self {
+            Self::Kind(Kind::Imbox) => crate::prefs::get().imbox_layout != "list",
+            Self::Kind(Kind::Feed) | Self::Screener => true,
+            _ => false,
+        }
+    }
+}
+
+/// How many conversations a view lists (up to 999), for the sidebar.
+pub fn count(all: &[Mailbox], view: &View, unread: bool) -> usize {
+    let mut filter = view.filter(all, screener_on());
+    filter.unread = unread;
+    list_with(&view.mailboxes(all), &filter, 999).len()
 }
 
 /// Accounts shown in Mail (not the ones turned off in Settings).
@@ -180,14 +202,6 @@ pub fn screener_count(all: &[Mailbox]) -> usize {
         return 0;
     }
     list_with(&View::Screener.mailboxes(all), &View::Screener.filter(all, true), 500).len()
-}
-
-/// Unread conversations of one kind across every inbox, as its sidebar count.
-pub fn kind_unread(all: &[Mailbox], kind: Kind) -> usize {
-    let view = View::Kind(kind);
-    let mut filter = view.filter(all, screener_on());
-    filter.unread = true;
-    list_with(&view.mailboxes(all), &filter, 999).len()
 }
 
 pub fn senders(inboxes: &[i64]) -> Vec<SenderRow> {

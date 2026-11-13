@@ -727,6 +727,9 @@ impl Db {
             Screen::Pending => wanted.push(format!("m.screened IS NULL AND NOT {cleared}")),
             Screen::Out => wanted.push("COALESCE(m.screened, '') = 'out'".into()),
         }
+        if filter.flagged {
+            wanted.push("l.flagged = 1".into());
+        }
         if filter.unread {
             wanted.push("(l.unread = 1 OR m.thread = ?3)".into());
         }
@@ -737,7 +740,8 @@ impl Db {
                            (SELECT min(date) FROM messages f WHERE lower(f.from_addr) = lower(x.from_addr)) AS first_seen
                     FROM messages x LEFT JOIN senders s ON s.address = lower(x.from_addr)
                     WHERE x.mailbox IN ({ids}) AND x.flags & 16 = 0 AND x.thread {snoozed} (SELECT thread FROM snoozes)),
-                  latest AS (SELECT thread, max(date) AS date, count(*) AS n, max(flags & 1 = 0) AS unread FROM shown GROUP BY thread)
+                  latest AS (SELECT thread, max(date) AS date, count(*) AS n, max(flags & 1 = 0) AS unread,
+                                 max(flags & 2 <> 0) AS flagged FROM shown GROUP BY thread)
              SELECT m.id, m.account, m.mailbox, m.thread, m.date, m.from_name, m.from_addr, m.subject, m.preview, m.flags,
                     m.has_attachments, l.n, l.unread
              FROM latest l JOIN shown m ON m.thread = l.thread AND m.date = l.date

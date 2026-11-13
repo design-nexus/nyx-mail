@@ -273,12 +273,14 @@ for a in "${apps[@]}"; do
   fi
 
   if [[ $a == mail ]]; then
-    # The mail engine runs in the background: enabled for login and started now
-    # (one already running keeps going).
+    # The mail engine runs in the background: enabled for login and (re)started now.
+    # One left running on the replaced binary is refused its sign-ins by Online
+    # Accounts, so a running engine restarts on the new build.
     mkdir -p "$config/systemd/user"
     install -m 644 "$d/../maild/data/nyx-maild.service" "$config/systemd/user/nyx-maild.service"
     systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable --now nyx-maild.service >/dev/null 2>&1 || true
+    systemctl --user enable nyx-maild.service >/dev/null 2>&1 || true
+    systemctl --user restart nyx-maild.service >/dev/null 2>&1 || true
   fi
 
   if [[ $a == passwords ]]; then

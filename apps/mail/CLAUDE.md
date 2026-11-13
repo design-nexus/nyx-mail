@@ -1,9 +1,16 @@
 # Mail — notes for working on this app
 
-- GTK4 (`gtk4` 0.11, `v4_18`) + Rust, no libadwaita. Music's sidebar (every account's
-  Inbox, Drafts, Sent, Archive, Junk, Trash together, then each account's folders), a
-  340 px conversation list (`gtk::ListView`, 200 rows a page, more on scroll), and the
-  reading pane (`reader.rs`).
+- GTK4 (`gtk4` 0.11, `v4_18`) + Rust, no libadwaita. The "sorted inbox" layout: the
+  sidebar is Imbox, The Feed, Paper Trail and Screener, then Later (Snoozed, Set aside =
+  flagged mail, Drafts; Scheduled and Follow-ups only while they hold something), Pinned,
+  then each account's Inbox, Sent, Archive, Junk, Trash and folders, folded under its
+  heading unless it's in `prefs.open_accounts` (`all` for the every-account group shown
+  with several accounts). The Imbox, The Feed and the Screener are pages (`sorted.rs`)
+  drawn from the list's rows: opening one selects its row and shows the reader alone,
+  with Back (`window::refresh_mode`, `Ui.reading`). Settings → Imbox looks like
+  (`prefs.imbox_layout = "list"`) makes the Imbox a list instead (`View::is_page`). Every other view is a 340 px
+  conversation list (`gtk::ListView`, 200 rows a page, more on scroll) beside the
+  reading pane (`reader.rs`). Under 980 px the sidebar is an icon rail.
 - The window never writes mail data. It reads `mail.sqlite` read-only (`data.rs`) and
   asks nyx-maild for every change over `MailEngine1` (`engine.rs`); the engine's
   `Changed` signal reloads the window. The app starts the engine on open.
@@ -34,8 +41,8 @@
   let in; people written to are let in. Snoozes, follow-ups and send-later live in
   nyx-maild (30 s tick; `NYX_MAIL_TICK_SECONDS` in tests). `organize.rs` in the app
   has the Snooze/More menus, the banners over a conversation and the Scheduled/Sender
-  cards. The reader toolbar must stay ≤ 407 px for 800 px windows (GTK's `.toolbar`
-  `border-spacing` is zeroed for it).
+  cards. The reader toolbar must stay ≤ 407 px for 800 px windows beside the list: its
+  Reply, Reply all and Forward labels hide there (`Ui.bar_labels`).
 - Never call `selection.set_selected` while `UI` is borrowed: its handler borrows it
   (`window::select`).
 - Microsoft 365 / Outlook.com (GOA `ms_graph`): `nyx_mail_core::graph` over Microsoft

@@ -1,18 +1,83 @@
 /* Mail on Nyx 2.0: only Mail's own parts. The frame (nyx_ui::frame) holds the
-   folders beside the sheet; a line splits the list from the reader. */
+   sidebar beside the sheet; in the sheet, the sorted pages (Imbox, The Feed,
+   Screener) or the list beside the reader. */
 
-window.mail-window .app-header button.accent-action {
-  color: @theme_accent;
+/* ---------- Header ---------- */
+
+.key-hint {
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
 }
 
-window.mail-window .app-header button.accent-action:hover {
-  background: alpha(@theme_accent, 0.14);
+window.mail-window .app-header button.new-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  font-weight: 600;
 }
+
+window.mail-window .app-header button.new-button:hover {
+  background: mix(@field, @theme_text, 0.06);
+}
+
+window.mail-window .app-header button.new-button .key-hint {
+  margin-left: 2px;
+  font-weight: 400;
+}
+
+/* ---------- Sidebar ---------- */
+
+.settings-navigation:not(.compact) {
+  min-width: 220px;
+}
+
+.settings-navigation button.nav-item.active {
+  box-shadow: none;
+}
+
+/* An account's heading: click it (or its chevron) to show or fold its folders. */
+.settings-navigation .account-header .nav-group {
+  margin-right: 0;
+}
+
+/* What's folded under an account. */
+.settings-navigation .fold-note {
+  margin: 2px 10px 0 10px;
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+}
+
+/* The icon rail's mark where a group starts: a short bar in its colour. */
+.settings-navigation separator.nav-divider {
+  margin: 8px 14px 6px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: @theme_divider;
+}
+
+/* The foot: whether mail is up to date. */
+window.mail-window .settings-navigation button.nav-status {
+  margin-top: 6px;
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+}
+
+.nav-status .status-icon {
+  -gtk-icon-size: 13px;
+}
+
+.nav-status .status-icon.ok { color: @theme_success; }
+.nav-status .status-icon.warn { color: @theme_warning; }
+
+/* ---------- Toolbars over the list and the reader ---------- */
 
 .toolbar {
   background: transparent;
   min-height: 46px;
   padding: 0 12px 0 20px;
+  border-bottom: 1px solid @sheet_line;
 }
 
 .toolbar-title {
@@ -22,17 +87,231 @@ window.mail-window .app-header button.accent-action:hover {
 }
 
 window.mail-window .toolbar.reader-bar {
-  padding: 0 6px;
-  border-spacing: 0;
+  padding: 0 8px 0 12px;
 }
 
-.reader-bar .bar-gap {
-  min-width: 6px;
-}
-
-window.mail-window .reader-bar button {
+window.mail-window .reader-bar button.icon-button,
+window.mail-window .reader-bar menubutton > button {
   min-width: 30px;
+  min-height: 30px;
   padding: 0;
+}
+
+window.mail-window .reader-bar button.bar-labelled {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+window.mail-window .reader-bar button.reader-back {
+  min-height: 30px;
+  padding: 0 10px 0 6px;
+  margin-right: 4px;
+  font-weight: 600;
+  color: @theme_text;
+}
+
+/* ---------- The sorted pages ---------- */
+
+.page-head {
+  min-height: 60px;
+  padding: 0 12px 0 22px;
+  border-bottom: 1px solid @sheet_line;
+}
+
+.page-title {
+  font-size: 1.231em;
+  font-weight: 600;
+  color: @theme_text;
+}
+
+.page-subtitle {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+.page-body {
+  padding: 18px 24px 32px 24px;
+}
+
+window.mail-window .page-switch button.segment {
+  padding: 0 10px;
+  min-height: 28px;
+}
+
+.sorted-heading {
+  margin: 0 4px 8px 4px;
+  font-size: 0.846em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: @theme_accent;
+}
+
+.sorted-heading.seen {
+  margin-top: 22px;
+  color: @theme_text_tertiary;
+}
+
+.sorted-heading.seen.first {
+  margin-top: 0;
+}
+
+.sorted-none {
+  margin: 0 4px 6px 4px;
+  color: @theme_text_tertiary;
+}
+
+/* Someone new: a card. Someone seen before: a plain line. */
+window.mail-window button.person-card {
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px @hairline;
+  font-weight: 400;
+}
+
+window.mail-window button.person-card:hover {
+  background: @lift_active;
+}
+
+window.mail-window button.person-row {
+  padding: 8px 16px;
+  border-radius: var(--nyx-radius-small);
+  background: transparent;
+  font-weight: 400;
+}
+
+window.mail-window button.person-row:hover {
+  background: @row_hover;
+}
+
+.person-name {
+  font-weight: 600;
+  color: @theme_text;
+}
+
+.person-subject {
+  color: @theme_text;
+}
+
+.person-row .person-subject,
+.person-preview {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+.person-row .person-subject {
+  font-size: 1em;
+}
+
+.person-time {
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+}
+
+/* The Feed: newsletters as cards. */
+.feed-grid > flowboxchild {
+  padding: 0;
+}
+
+window.mail-window button.feed-card {
+  padding: 0;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px @hairline;
+  font-weight: 400;
+}
+
+window.mail-window button.feed-card:hover {
+  background: @lift_active;
+}
+
+.feed-body {
+  padding: 10px 12px 12px 12px;
+}
+
+.feed-from {
+  color: @theme_accent;
+  font-size: 0.846em;
+  font-weight: 600;
+}
+
+.feed-subject {
+  font-weight: 600;
+  color: @theme_text;
+}
+
+.feed-card.unread .feed-subject {
+  font-weight: 700;
+}
+
+.feed-preview {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+/* The Screener: a card for each first-time sender, and where their mail goes. */
+.screen-card {
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px @hairline;
+}
+
+.screen-address {
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+}
+
+.screen-subject {
+  margin-top: 3px;
+  color: @theme_dim_text;
+}
+
+window.mail-window .screen-card button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-weight: 600;
+}
+
+window.mail-window .screen-card button.screen-no {
+  color: @theme_danger;
+}
+
+.screen-note {
+  margin: 14px 4px 0 4px;
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
+}
+
+.screen-note image {
+  -gtk-icon-size: 14px;
+  margin-top: 2px;
+}
+
+window.mail-window button.show-more {
+  margin-top: 12px;
+}
+
+/* Avatars: initials on the sender's swatch (the swatch class sets `color`). */
+.mail-avatar {
+  border-radius: 999px;
+  background-color: currentColor;
+}
+
+.mail-avatar > label {
+  color: white;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.mail-avatar.size-m > label {
+  font-size: 13px;
+}
+
+.mail-avatar.size-l > label {
+  font-size: 15px;
 }
 
 .banners {
@@ -48,10 +327,6 @@ window.mail-window .reader-bar button {
 /* The theme's text colour, not the desktop GTK theme's. */
 .mail-list > row {
   color: @theme_text;
-}
-
-.nav-top {
-  padding: 0 8px 2px 8px;
 }
 
 .mail-list > row {
@@ -138,19 +413,38 @@ window.mail-window button.row-action:hover {
 }
 
 .flag {
-  color: @theme_accent;
+  color: @theme_warning;
 }
 
 /* The reader */
 
 .conversation {
-  padding: 20px 24px 36px 24px;
+  padding: 22px 28px 36px 28px;
 }
 
 .conversation-subject {
-  font-size: 1.35em;
+  font-size: 1.538em;
   font-weight: 600;
+  letter-spacing: -0.012em;
   margin-bottom: 4px;
+}
+
+/* "Reply to Sam…" under the conversation. */
+window.mail-window button.quick-reply {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--nyx-radius-card);
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  font-weight: 400;
+}
+
+window.mail-window button.quick-reply:hover {
+  background: @row_hover;
+}
+
+.quick-reply-text {
+  color: @theme_text_tertiary;
 }
 
 .message-card {
@@ -165,24 +459,6 @@ window.mail-window button.row-action:hover {
 
 .message-card.collapsed:hover {
   background: @lift_active;
-}
-
-.avatar {
-  padding: 0;
-  min-width: 34px;
-  min-height: 34px;
-  border-radius: 17px;
-  background: alpha(@theme_accent, 0.18);
-  color: @theme_accent;
-  font-weight: 700;
-}
-
-.message-card.collapsed .avatar {
-  padding: 0;
-  min-width: 26px;
-  min-height: 26px;
-  border-radius: 13px;
-  font-size: 0.85em;
 }
 
 .message-date {
@@ -252,13 +528,6 @@ window.mail-window button.row-action:hover {
   background: transparent;
 }
 
-.settings-navigation .nav-group-add {
-  min-height: 22px;
-  min-width: 22px;
-  padding: 0;
-  margin-right: 4px;
-}
-
 .suggestions > contents {
   padding: 4px;
   min-width: 320px;
@@ -286,35 +555,14 @@ window.mail-window button.row-action:hover {
   margin: 4px 8px;
 }
 
-/* The list's header: the folder, its count and sync state, and All / Unread. */
+/* The list's header: the folder, its count, and All / Unread. */
 .toolbar .status-readout {
-  color: @theme_dim_text;
-  font-size: 11.5px;
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
   margin-left: 4px;
 }
 
 .toolbar .segmented button.segment {
   padding: 0 10px;
   min-height: 26px;
-}
-
-/* The sidebar's foot: who new mail is from. */
-.send-from {
-  margin: 8px 6px 6px 6px;
-  padding: 6px 8px;
-}
-
-.send-from-avatar {
-  min-width: 22px;
-  min-height: 22px;
-  border-radius: 11px;
-  background: alpha(@theme_accent, 0.22);
-  color: @theme_accent;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.send-from-address {
-  color: @theme_dim_text;
-  font-size: 12.5px;
 }

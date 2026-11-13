@@ -13,6 +13,7 @@ use crate::organize;
 use crate::prefs;
 use crate::reader;
 use crate::settings_dialog;
+use crate::sorted;
 use crate::widgets;
 use gtk::gdk;
 use gtk::gio;
@@ -38,17 +39,17 @@ pub const SHORTCUTS: &[(&[&str], &str)] = &[
     (&["#"], "Move to Trash"),
     (&["Delete"], "Move to Trash (in Trash: delete for good)"),
     (&["!"], "Move to Junk"),
-    (&["S"], "Star or unstar"),
+    (&["S"], "Set aside or put back"),
     (&["U"], "Mark read or unread"),
     (&["Shift", "U"], "Show only unread"),
     (&["Z"], "Snooze"),
-    (&["1"], "Unified"),
+    (&["1"], "Imbox"),
     (&["2"], "Drafts"),
     (&["3"], "Sent"),
     (&["4"], "Archive"),
     (&["Ctrl", "R"], "Check for mail"),
     (&["Ctrl", "F"], "Find messages"),
-    (&["Esc"], "Clear the search"),
+    (&["Esc"], "Clear the search, or back to the Imbox, Feed or Screener"),
     (&["Ctrl", "B"], "Collapse or expand sidebar"),
     (&["Ctrl", ","], "Settings"),
     (&["F1"], "Show keyboard shortcuts"),
@@ -96,10 +97,28 @@ struct Ui {
     overlay: gtk::Overlay,
     nav: gtk::Box,
     nav_list: gtk::Box,
-    /// The header, which shows the folder you're in after the app's name.
-    header: nyx_ui::chrome::AppHeader,
+    /// The sidebar's foot: whether mail is up to date (click to check).
+    foot_icon: gtk::Image,
+    foot_label: gtk::Label,
+    foot: gtk::Button,
+    compose: gtk::Button,
     search: gtk::SearchEntry,
     banners: gtk::Box,
+    /// `panes` (the list beside the reader, or the reader alone over a page)
+    /// or `page` (the Imbox, The Feed, the Screener).
+    main_stack: gtk::Stack,
+    page_slot: gtk::Box,
+    /// What the page last showed, to redraw it only when that changes.
+    page_shows: String,
+    list_column: gtk::Box,
+    pane_line: gtk::Separator,
+    /// Back to the page, over a conversation opened from it.
+    back: gtk::Button,
+    back_label: gtk::Label,
+    /// The reader's labelled buttons, icons only beside the list at 800 px.
+    bar_labels: Vec<gtk::Label>,
+    /// A conversation opened from a page is being read.
+    reading: bool,
     list_title: gtk::Label,
     store: gio::ListStore,
     selection: gtk::SingleSelection,
@@ -166,7 +185,7 @@ pub fn present(app: &gtk::Application, section: Option<&str>) {
     let first = ui().is_none();
     if first {
         build(app);
-        let start = nyx_theme::start_page("inbox", &prefs::get().last_section);
+        let start = nyx_theme::start_page("imbox", &prefs::get().last_section);
         show_view(View::from_id(&start));
         start_engine();
     }
@@ -225,7 +244,7 @@ fn snapshot_and_quit(app: &gtk::Application, out: std::path::PathBuf) {
     let every = env_num("MAIL_SNAPSHOT_EVERY", 1500) as u64;
     for (i, n) in picks.into_iter().enumerate() {
         glib::timeout_add_local_once(std::time::Duration::from_millis(delay / 3 + i as u64 * every), move || {
-            select(n.saturating_sub(1));
+            open_row(n.saturating_sub(1));
         });
     }
     let compose_shot = std::env::var_os("MAIL_SNAPSHOT_COMPOSE").is_some();
@@ -360,10 +379,102 @@ pub(crate) fn show_view(view: View) {
         u.view = view;
         u.limit = PAGE;
         u.open = None;
+        u.reading = false;
     }
     reader::show(None, &[]);
     reload();
     open_first();
+}
+
+fn on_page(u: &Ui) -> bool {
+    u.view.is_page() && !searching(u)
+}
+
+/// Opens a page's conversation (its row in the list) in the reader.
+pub(crate) fn open_row(position: u32) {
+    let Some(ui) = ui() else { return };
+    ui.borrow_mut().reading = true;
+    if selected_position() == Some(position) {
+        refresh_mode();
+    } else {
+        select(position);
+    }
+}
+
+/// From a conversation back to the page it was opened from.
+pub(crate) fn back_to_page() {
+    let Some(ui) = ui() else { return };
+    ui.borrow_mut().reading = false;
+    select(gtk::INVALID_LIST_POSITION);
+    refresh_mode();
+}
+
+/// The Imbox shows what's new and then what was seen, or only what was seen.
+pub(crate) fn set_imbox_seen(seen: bool) {
+    prefs::update(|p| p.imbox_seen = seen);
+    rebuild_page();
+}
+
+/// The Imbox as cards (a page) or as the list beside the reader.
+pub(crate) fn set_imbox_layout(layout: &str) {
+    prefs::update(|p| p.imbox_layout = layout.to_string());
+    let view = ui().map(|u| u.borrow().view.clone());
+    if view == Some(View::Kind(Kind::Imbox)) {
+        show_view(View::Kind(Kind::Imbox));
+    }
+}
+
+/// The page, or the reader alone over it, or the list beside the reader.
+fn refresh_mode() {
+    let Some(ui) = ui() else { return };
+    let page = on_page(&ui.borrow());
+    let reading = page && ui.borrow().reading && selected_position().is_some();
+    ui.borrow_mut().reading = reading;
+    let u = ui.borrow();
+    u.main_stack.set_visible_child_name(if page && !reading { "page" } else { "panes" });
+    u.list_column.set_visible(!page);
+    u.pane_line.set_visible(!page);
+    u.back.set_visible(page);
+    u.back_label.set_text(&view_name(&u));
+    u.back.set_tooltip_text(Some(&format!("Back to {} (Esc)", view_name(&u))));
+    // Beside the list at 800 px the reader is too narrow for its labels.
+    let labels = page || !NARROW.with(|n| n.get());
+    for l in &u.bar_labels {
+        l.set_visible(labels);
+    }
+    u.list_column.set_size_request(if NARROW.with(|n| n.get()) { 280 } else { 340 }, -1);
+}
+
+/// Redraws the page from the list's rows, when what it shows changed.
+fn rebuild_page() {
+    let Some(ui) = ui() else { return };
+    let (view, rows, more, slot) = {
+        let u = ui.borrow();
+        (u.view.clone(), u.rows.clone(), u.rows.len() >= u.limit, u.page_slot.clone())
+    };
+    let shows = format!("{}\u{1f}{rows:?}\u{1f}{more}\u{1f}{}\u{1f}{}", view.id(), prefs::get().imbox_seen, data::screener_on());
+    if ui.borrow().page_shows == shows {
+        return;
+    }
+    let same_view = ui.borrow().page_shows.split('\u{1f}').next() == Some(view.id().as_str());
+    ui.borrow_mut().page_shows = shows;
+    let at = slot
+        .first_child()
+        .and_then(|p| p.last_child())
+        .and_downcast::<gtk::ScrolledWindow>()
+        .map(|s| s.vadjustment().value())
+        .filter(|_| same_view);
+    while let Some(child) = slot.first_child() {
+        slot.remove(&child);
+    }
+    let page = sorted::page(&view, &rows, more);
+    slot.append(&page);
+    if let Some(at) = at
+        && let Some(scroll) = page.last_child().and_downcast::<gtk::ScrolledWindow>()
+    {
+        // Once it's laid out: the adjustment has no range until then.
+        glib::idle_add_local_once(move || scroll.vadjustment().set_value(at));
+    }
 }
 
 /// Shows the first conversation of the mailbox just opened (Settings → Reading),
@@ -372,7 +483,7 @@ fn open_first() {
     let Some(ui) = ui() else { return };
     let first = {
         let u = ui.borrow();
-        u.open.is_none() && matches!(u.rows.first(), Some(Row::Conversation(_)))
+        u.open.is_none() && !on_page(&u) && matches!(u.rows.first(), Some(Row::Conversation(_)))
     };
     if first && prefs::get().open_first {
         select_quietly(0);
@@ -418,6 +529,7 @@ fn view_name(u: &Ui) -> String {
         View::Kind(kind) => kind.name().to_string(),
         View::Screener => "Screener".into(),
         View::Snoozed => "Snoozed".into(),
+        View::SetAside => "Set aside".into(),
         View::Scheduled => "Scheduled".into(),
         View::FollowUps => "Follow-ups".into(),
         View::Senders => "Senders".into(),
@@ -436,8 +548,7 @@ fn view_name(u: &Ui) -> String {
 
 fn role_name(role: Role) -> &'static str {
     match role {
-        // Every account's inbox together; "Inbox" would read like "Imbox" beside it.
-        Role::Inbox => "Unified",
+        Role::Inbox => "Inbox",
         Role::Sent => "Sent",
         Role::Drafts => "Drafts",
         Role::Trash => "Trash",
@@ -486,7 +597,7 @@ fn rebuild_list() {
                         }
                     }
                     let mut filter = view.filter(&u.mailboxes, data::screener_on());
-                    filter.unread = u.unread_only;
+                    filter.unread = u.unread_only && !view.is_page();
                     filter.keep = u.open.clone();
                     rows.extend(data::list_with(&mailboxes, &filter, u.limit).into_iter().map(Row::Conversation));
                 }
@@ -499,7 +610,6 @@ fn rebuild_list() {
         (rows, view_title(&u))
     };
     ui.borrow().list_title.set_text(&title);
-    ui.borrow().header.set_subtitle(&title);
     chrome::set_title(&ui.borrow().window, "Mail", &title);
 
     let (store, selection, open, scroll) = {
@@ -555,6 +665,10 @@ fn rebuild_list() {
     } else {
         stack.set_visible_child_name("list");
     }
+    if on_page(&ui.borrow()) {
+        rebuild_page();
+    }
+    refresh_mode();
 }
 
 fn fill_empty(slot: &gtk::Box) {
@@ -579,9 +693,11 @@ fn fill_empty(slot: &gtk::Box) {
         let text = match (&u.view, u.view.role(&u.mailboxes)) {
             (View::Screener, _) => "Nobody new is waiting",
             (View::Snoozed, _) => "Nothing snoozed",
+            (View::SetAside, _) => "Nothing set aside",
             (View::Scheduled, _) => "Nothing scheduled to send",
             (View::FollowUps, _) => "No follow-ups set",
             (View::Senders, _) => "Nobody has written yet",
+            (View::Kind(Kind::Imbox), _) => "Nothing in the Imbox",
             (View::Kind(Kind::Feed), _) => "Nothing in the Feed",
             (View::Kind(Kind::Paper), _) => "No receipts or notices",
             (_, Some(Role::Inbox)) => "Your inbox is empty",
@@ -590,7 +706,12 @@ fn fill_empty(slot: &gtk::Box) {
             (_, Some(Role::Junk)) => "No junk",
             _ => "No messages",
         };
-        widgets::empty_state(role_icon(u.view.role(&u.mailboxes)), text, "", None)
+        let icon = match u.view {
+            View::SetAside => "nyx-mail-flag-symbolic",
+            View::Snoozed => "alarm-symbolic",
+            _ => role_icon(u.view.role(&u.mailboxes)),
+        };
+        widgets::empty_state(icon, text, "", None)
     };
     slot.append(&state);
 }
@@ -682,8 +803,9 @@ fn list_row(row: &Row) -> gtk::Box {
         top.append(&i);
     }
     if flagged {
-        let i = gtk::Image::from_icon_name("starred-symbolic");
+        let i = gtk::Image::from_icon_name("nyx-mail-flag-symbolic");
         i.add_css_class("flag");
+        i.set_tooltip_text(Some("Set aside"));
         top.append(&i);
     }
     top.append(&widgets::label(&when, "mail-date"));
@@ -716,7 +838,7 @@ fn with_row_actions(content: &gtk::Widget, item: glib::WeakRef<gtk::ListItem>) -
     actions.set_visible(false);
     let buttons: [(&str, &str, fn()); 4] = [
         ("nyx-mail-archive-symbolic", "Archive (E)", archive),
-        ("starred-symbolic", "Star or unstar (S)", toggle_star),
+        ("nyx-mail-flag-symbolic", "Set aside or put back (S)", toggle_star),
         ("mail-unread-symbolic", "Mark read or unread (U)", toggle_unread),
         ("user-trash-symbolic", "Move to Trash (#)", trash),
     ];
@@ -807,6 +929,7 @@ fn on_selected() {
         }
     }
     refresh_reader_bar();
+    refresh_mode();
 }
 
 /// Selects a row (never while the UI state is borrowed: the selection's
@@ -863,10 +986,12 @@ fn move_selection(step: i32) {
     }
     let current = selection.selected();
     let next = if current == gtk::INVALID_LIST_POSITION { 0 } else { (current as i32 + step).clamp(0, n - 1) };
+    // On a page, J and K open conversations in the reader.
+    ui.borrow_mut().reading = true;
     select(next as u32);
 }
 
-fn load_more() {
+pub(crate) fn load_more() {
     let Some(ui) = ui() else { return };
     let more = {
         let u = ui.borrow();
@@ -903,12 +1028,15 @@ fn act(target: Option<&str>, done_text: &str) {
     }
     // Select the next conversation, as the list closes up.
     let pos = ui.borrow().selection.selected();
+    // From a page's menu (nothing open in the reader): stay on the page.
+    let reading = !on_page(&ui.borrow()) || ui.borrow().reading;
     ui.borrow_mut().open = None;
     rebuild_list();
     let n = ui.borrow().rows.len() as u32;
     let then = prefs::get().after_moving;
-    if n > 0 && pos != gtk::INVALID_LIST_POSITION && then != "list" {
+    if n > 0 && pos != gtk::INVALID_LIST_POSITION && then != "list" && reading {
         let at = if then == "previous" { pos.saturating_sub(1) } else { pos };
+        ui.borrow_mut().reading = true;
         select(at.min(n - 1));
     } else {
         select(gtk::INVALID_LIST_POSITION);
@@ -995,8 +1123,10 @@ pub(crate) fn toggle_star() {
     if starred {
         let ids: Vec<i64> = messages.iter().filter(|m| m.flags & flags::FLAGGED != 0).map(|m| m.id).collect();
         engine::set_flags(&ids, 0, flags::FLAGGED);
+        toast("Put back: it's no longer set aside.");
     } else {
         engine::set_flags(&[last.id], flags::FLAGGED, 0);
+        toast("Set aside. Find it under Later › Set aside.");
     }
 }
 
@@ -1067,27 +1197,47 @@ fn refresh_readout() {
             n => format!("{n} {many}"),
         });
     }
-    match &u.status {
-        Some(s) => {
-            if s.accounts.iter().any(|a| a.syncing) {
-                parts.push("Checking for mail…".into());
-            } else if !s.accounts.is_empty() && s.accounts.iter().all(|a| a.offline) {
-                parts.push("Offline".into());
-            } else if let Some(last) = s.accounts.iter().filter_map(|a| a.last_sync).max() {
-                parts.push(format!("Updated {}", when_text(last, false)));
-            }
-            if s.pending > 0 {
-                parts.push(if s.pending == 1 { "1 change waiting".into() } else { format!("{} changes waiting", s.pending) });
-            }
-        }
-        None if !u.engine_up => parts.push("Mail's engine isn't running".into()),
-        None => {}
-    }
     STATUS.with(|s| {
         if let Some(label) = s.borrow().as_ref() {
             label.set_text(&parts.join(" · "));
         }
     });
+
+    // The sidebar's foot: how the mail is, at a glance.
+    let last = u.status.as_ref().and_then(|s| s.accounts.iter().filter_map(|a| a.last_sync).max());
+    let (icon, class, mut text) = match &u.status {
+        Some(s) if s.accounts.iter().any(|a| a.syncing) => ("view-refresh-symbolic", "", "Checking for mail…".to_string()),
+        Some(s) if !s.accounts.is_empty() && s.accounts.iter().all(|a| a.offline) => {
+            ("network-offline-symbolic", "warn", "Offline".to_string())
+        }
+        Some(s) if s.accounts.iter().any(|a| a.error.is_some()) => {
+            ("dialog-warning-symbolic", "warn", "An account needs attention".to_string())
+        }
+        Some(_) => match last {
+            Some(t) if now() - t < 15 * 60 => ("object-select-symbolic", "ok", "Up to date".to_string()),
+            Some(t) => ("object-select-symbolic", "", format!("Updated {}", when_text(t, false))),
+            None => ("view-refresh-symbolic", "", "Not checked yet".to_string()),
+        },
+        None if !u.engine_up => ("dialog-warning-symbolic", "warn", "Mail's engine isn't running".to_string()),
+        None => ("view-refresh-symbolic", "", "Starting…".to_string()),
+    };
+    if let Some(s) = &u.status
+        && s.pending > 0
+    {
+        text.push_str(&if s.pending == 1 { " · 1 change waiting".to_string() } else { format!(" · {} changes waiting", s.pending) });
+    }
+    u.foot_icon.set_icon_name(Some(icon));
+    for c in ["ok", "warn"] {
+        u.foot_icon.remove_css_class(c);
+    }
+    if !class.is_empty() {
+        u.foot_icon.add_css_class(class);
+    }
+    u.foot_label.set_text(&text);
+    let updated = last.map(|t| format!("Updated {}. ", when_text(t, true))).unwrap_or_default();
+    u.foot.set_tooltip_text(Some(&format!("{text}. {updated}Check for mail (Ctrl+R)")));
+    let from = compose::send_from().map(|a| format!(" from {a}")).unwrap_or_default();
+    u.compose.set_tooltip_text(Some(&format!("New message{from} (C or Ctrl+N)")));
 }
 
 fn rebuild_banners() {
@@ -1196,95 +1346,144 @@ pub fn open_online_accounts() {
 
 // ---------- Sidebar ----------
 
-fn nav_button(icon: &str, title: &str, tooltip: &str, count: i64, active: bool) -> gtk::Button {
-    let button = gtk::Button::new();
-    button.add_css_class("nav-item");
-    if active {
-        button.add_css_class("active");
+/// A sidebar row for a view: its count in the dim readout, or as a badge.
+fn nav(view: View, icon: &str, name: &str, tooltip: &str, count: usize, badge: bool, active: bool) -> gtk::Button {
+    let item = nyx_ui::sidebar::nav_item(icon, name, tooltip);
+    if badge {
+        item.set_badge(Some(count as u64));
+        if let Some(readout) = item.button.child().and_then(|c| c.last_child()) {
+            readout.set_valign(gtk::Align::Center);
+        }
+    } else {
+        item.set_count(Some(count as u64));
     }
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    content.append(&gtk::Image::from_icon_name(icon));
-    let label = widgets::label(title, "nav-label");
-    label.set_hexpand(true);
-    label.set_xalign(0.0);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    label.add_css_class("compact-hide");
-    content.append(&label);
-    if count > 0 {
-        let badge = widgets::label(&count.to_string(), "nav-readout");
-        badge.add_css_class("compact-hide");
-        content.append(&badge);
-    }
-    button.set_child(Some(&content));
-    button.set_tooltip_text(Some(tooltip));
-    button
+    item.set_active(active);
+    item.button.connect_clicked(move |_| show_view(view.clone()));
+    item.button
 }
 
-fn group_label(text: &str, first: bool, add: bool) -> gtk::Widget {
-    let label = widgets::label(&text.to_uppercase(), "nav-group");
-    label.add_css_class("compact-hide");
-    if first {
-        label.add_css_class("first");
-    }
-    if !add {
-        return label.upcast();
-    }
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    row.add_css_class("compact-hide");
-    label.set_hexpand(true);
-    label.set_xalign(0.0);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    row.append(&label);
-    let plus = widgets::icon_button("list-add-symbolic", "Add an account");
-    plus.add_css_class("flat");
-    plus.add_css_class("nav-group-add");
-    plus.set_valign(gtk::Align::End);
-    plus.connect_clicked(|_| open_online_accounts());
-    row.append(&plus);
-    row.upcast()
+/// Where a group starts in the icon rail: a short bar in its colour.
+fn rail_divider(section: &str) -> gtk::Separator {
+    let bar = gtk::Separator::new(gtk::Orientation::Horizontal);
+    bar.add_css_class("nav-divider");
+    bar.add_css_class("compact-show");
+    bar.add_css_class(&format!("section-{section}"));
+    bar.set_visible(false);
+    bar
 }
 
-/// An account's heading: click (or the chevron) folds its folders away;
-/// right-click for the account's menu.
-fn account_header(account: &nyx_mail_core::AccountRow, first_account: bool, folded: bool) -> gtk::Widget {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    row.add_css_class("compact-hide");
-    row.add_css_class("account-header");
-    let label = widgets::label(&account.address.to_uppercase(), "nav-group");
-    label.set_hexpand(true);
-    label.set_xalign(0.0);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    row.append(&label);
-    if first_account {
-        let plus = widgets::icon_button("list-add-symbolic", "Add an account");
-        plus.add_css_class("flat");
-        plus.add_css_class("nav-group-add");
-        plus.set_valign(gtk::Align::End);
-        plus.connect_clicked(|_| open_online_accounts());
-        row.append(&plus);
+/// A folder under an account's heading, and what its right-click menu is.
+struct Folder {
+    view: View,
+    icon: &'static str,
+    name: String,
+    tooltip: String,
+    count: i64,
+    depth: usize,
+    menu: FolderMenu,
+}
+
+enum FolderMenu {
+    Role(Role),
+    Mailbox(Mailbox),
+}
+
+/// "Inbox, Sent, Junk and Trash", "Inbox and 3 folders".
+fn fold_note(folders: &[Folder]) -> String {
+    let mut parts: Vec<String> = folders.iter().filter(|f| f.icon != "folder-symbolic").map(|f| f.name.clone()).collect();
+    let others = folders.iter().filter(|f| f.icon == "folder-symbolic").count();
+    match others {
+        0 => {}
+        1 => parts.push("1 folder".into()),
+        n => parts.push(format!("{n} folders")),
     }
-    let (icon, tip) = if folded { ("pan-end-symbolic", "Show its folders") } else { ("pan-down-symbolic", "Hide its folders") };
+    match parts.as_slice() {
+        [] => "No folders".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// A heading that folds its folders away (`key` in `open_accounts` when shown),
+/// then its folders, or a line saying what's folded.
+fn folder_group(
+    list_box: &gtk::Box,
+    key: &str,
+    title: &str,
+    section: &str,
+    folders: &[Folder],
+    account: Option<&nyx_mail_core::AccountRow>,
+    active: &dyn Fn(&View) -> bool,
+) {
+    let open = prefs::get().open_accounts.iter().any(|k| k == key) || folders.iter().any(|f| active(&f.view));
+    list_box.append(&rail_divider(section));
+    let heading = nyx_ui::sidebar::group_label(title, false);
+    heading.add_css_class("account-header");
+    let (icon, tip) = if open { ("pan-down-symbolic", "Hide its folders") } else { ("pan-end-symbolic", "Show its folders") };
     let fold = widgets::icon_button(icon, tip);
-    fold.add_css_class("flat");
     fold.add_css_class("nav-group-add");
     fold.set_valign(gtk::Align::End);
-    let id = account.id.clone();
-    fold.connect_clicked(move |_| toggle_account_folded(&id));
-    row.append(&fold);
-    let click = gtk::GestureClick::new();
-    let id = account.id.clone();
-    click.connect_released(move |_, _, _, _| toggle_account_folded(&id));
-    label.add_controller(click);
-    crate::menus::attach_account(&row, account, folded);
-    row.upcast()
+    let k = key.to_string();
+    fold.connect_clicked(move |_| toggle_account_folded(&k));
+    heading.append(&fold);
+    if let Some(label) = heading.first_child() {
+        let click = gtk::GestureClick::new();
+        let k = key.to_string();
+        click.connect_released(move |_, _, _, _| toggle_account_folded(&k));
+        label.add_controller(click);
+    }
+    if let Some(account) = account {
+        crate::menus::attach_account(&heading, account, !open);
+    }
+    nyx_ui::sidebar::set_section(&heading, section);
+    list_box.append(&heading);
+    if !open {
+        let note = fold_note(folders);
+        let line = widgets::label(&note, "fold-note");
+        line.add_css_class("compact-hide");
+        line.set_wrap(true);
+        line.set_tooltip_text(Some("Show these folders"));
+        let click = gtk::GestureClick::new();
+        let k = key.to_string();
+        click.connect_released(move |_, _, _, _| toggle_account_folded(&k));
+        line.add_controller(click);
+        list_box.append(&line);
+        // The icon rail has no heading to click: one button stands for them.
+        let rail = nyx_ui::sidebar::nav_item("folder-symbolic", title, &format!("{title}: {note}"));
+        rail.button.add_css_class("compact-show");
+        rail.button.set_visible(false);
+        let k = key.to_string();
+        rail.button.connect_clicked(move |_| toggle_account_folded(&k));
+        list_box.append(&rail.button);
+        return;
+    }
+    for f in folders {
+        let button = nav(f.view.clone(), f.icon, &f.name, &f.tooltip, f.count.max(0) as usize, false, active(&f.view));
+        if let Some(content) = button.child() {
+            content.set_margin_start((f.depth.min(4) * 14) as i32);
+        }
+        match &f.menu {
+            FolderMenu::Role(role) => crate::menus::attach_role(&button, *role),
+            FolderMenu::Mailbox(m) => crate::menus::attach_mailbox(&button, m),
+        }
+        list_box.append(&button);
+    }
 }
 
-pub(crate) fn toggle_account_folded(id: &str) {
+/// The mailboxes every account has, in the order they're listed (Drafts is
+/// under Later).
+const ROLES: [Role; 5] = [Role::Inbox, Role::Sent, Role::Archive, Role::Junk, Role::Trash];
+
+fn role_count(role: Role, unread: i64) -> i64 {
+    if matches!(role, Role::Inbox | Role::Junk) { unread } else { 0 }
+}
+
+pub(crate) fn toggle_account_folded(key: &str) {
     prefs::update(|p| {
-        if p.collapsed_accounts.iter().any(|a| a == id) {
-            p.collapsed_accounts.retain(|a| a != id);
+        if p.open_accounts.iter().any(|a| a == key) {
+            p.open_accounts.retain(|a| a != key);
         } else {
-            p.collapsed_accounts.push(id.to_string());
+            p.open_accounts.push(key.to_string());
         }
     });
     rebuild_nav();
@@ -1309,104 +1508,146 @@ pub(crate) fn rebuild_nav() {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
-    let (view, mailboxes, search_on) = {
+    let (view, mailboxes, search_on, status) = {
         let u = ui.borrow();
-        (u.view.clone(), u.mailboxes.clone(), searching(&u))
+        (u.view.clone(), u.mailboxes.clone(), searching(&u), u.status.clone().unwrap_or_default())
     };
-    let active = |v: &View| !search_on && view == *v;
+    // The Senders page belongs to the Screener.
+    let active = |v: &View| !search_on && (view == *v || (*v == View::Screener && view == View::Senders));
     let accounts = data::accounts();
     let several = accounts.len() > 1;
-    let heading = group_label(if several { "All accounts" } else { "Mailboxes" }, true, false);
-    nyx_ui::sidebar::set_section(&heading, nyx_ui::sidebar::ACCENT_SECTION);
-    list_box.append(&heading);
-    let drafts = data::drafts().len() as i64;
-    for (role, key) in
-        [(Role::Inbox, "1"), (Role::Drafts, "2"), (Role::Sent, "3"), (Role::Archive, "4"), (Role::Junk, ""), (Role::Trash, "")]
-    {
-        let has = mailboxes.iter().any(|m| m.role == Some(role));
-        if !has && !matches!(role, Role::Inbox | Role::Drafts) {
-            continue;
-        }
-        let count = match role {
-            Role::Inbox => mailboxes.iter().filter(|m| m.role == Some(Role::Inbox)).map(|m| m.unread).sum(),
-            Role::Drafts => drafts,
-            Role::Junk => mailboxes.iter().filter(|m| m.role == Some(Role::Junk)).map(|m| m.unread).sum(),
-            _ => 0,
-        };
-        let name = role_name(role);
-        let tooltip = if key.is_empty() { name.to_string() } else { format!("{name} ({key})") };
-        let v = View::All(role);
-        let button = nav_button(role_icon(Some(role)), name, &tooltip, count, active(&v));
-        button.connect_clicked(move |_| show_view(v.clone()));
-        crate::menus::attach_role(&button, role);
-        list_box.append(&button);
-        // The three kinds of inbox mail, sorted on this computer, under Unified.
-        if role == Role::Inbox {
-            for (kind, icon) in [
-                (Kind::Imbox, "avatar-default-symbolic"),
-                (Kind::Feed, "application-rss+xml-symbolic"),
-                (Kind::Paper, "x-office-document-symbolic"),
-            ] {
-                let v = View::Kind(kind);
-                let count = data::kind_unread(&mailboxes, kind) as i64;
-                let button = nav_button(icon, kind.name(), kind.name(), count, active(&v));
-                button.connect_clicked(move |_| show_view(v.clone()));
-                list_box.append(&button);
-            }
-        }
-    }
 
-    // Sorting and timing (kept on this computer).
-    let status = ui.borrow().status.clone().unwrap_or_default();
-    let mut extra: Vec<(View, &str, &str, i64)> = Vec::new();
-    if status.screener || data::screener_on() {
-        extra.push((View::Screener, "view-reveal-symbolic", "Screener", data::screener_count(&mailboxes) as i64));
+    // Mail sorted for you: the app's home, without a heading.
+    let screener = data::screener_on();
+    let kinds = [
+        (Kind::Imbox, "starred-symbolic", "Imbox (1)", true),
+        (Kind::Feed, "application-rss+xml-symbolic", "The Feed", false),
+        (Kind::Paper, "x-office-document-symbolic", "Paper Trail", false),
+    ];
+    for (kind, icon, tooltip, badge) in kinds {
+        let v = View::Kind(kind);
+        let count = data::count(&mailboxes, &v, true);
+        list_box.append(&nav(v.clone(), icon, kind.name(), tooltip, count, badge, active(&v)));
     }
-    extra.push((View::Snoozed, "alarm-symbolic", "Snoozed", 0));
-    extra.push((View::Scheduled, "x-office-calendar-symbolic", "Scheduled", status.scheduled));
-    extra.push((View::FollowUps, "document-open-recent-symbolic", "Follow-ups", status.follow_ups));
-    extra.push((View::Senders, "x-office-address-book-symbolic", "Senders", 0));
-    for (v, icon, name, count) in extra {
-        let button = nav_button(icon, name, name, count, active(&v));
-        button.connect_clicked(move |_| show_view(v.clone()));
-        list_box.append(&button);
+    let waiting = if screener { data::screener_count(&mailboxes) } else { 0 };
+    let tooltip = if screener { "Screener: first-time senders" } else { "Screener (off)" };
+    list_box.append(&nav(View::Screener, "nyx-mail-filter-symbolic", "Screener", tooltip, waiting, true, active(&View::Screener)));
+
+    // Later: what's waiting on time or on you.
+    list_box.append(&rail_divider(nyx_ui::sidebar::ACCENT_SECTION));
+    let later = nyx_ui::sidebar::group_label("Later", false);
+    nyx_ui::sidebar::set_section(&later, nyx_ui::sidebar::ACCENT_SECTION);
+    list_box.append(&later);
+    let snoozed = data::count(&mailboxes, &View::Snoozed, false);
+    list_box.append(&nav(View::Snoozed, "alarm-symbolic", "Snoozed", "Snoozed", snoozed, false, active(&View::Snoozed)));
+    let aside = data::count(&mailboxes, &View::SetAside, false);
+    list_box.append(&nav(
+        View::SetAside,
+        "nyx-mail-flag-symbolic",
+        "Set aside",
+        "Set aside (S on a conversation)",
+        aside,
+        false,
+        active(&View::SetAside),
+    ));
+    let drafts_view = View::All(Role::Drafts);
+    let drafts = nav(
+        drafts_view.clone(),
+        role_icon(Some(Role::Drafts)),
+        "Drafts",
+        "Drafts (2)",
+        data::drafts().len(),
+        false,
+        active(&drafts_view),
+    );
+    crate::menus::attach_role(&drafts, Role::Drafts);
+    list_box.append(&drafts);
+    // Only while there's something to show (or it's open).
+    if status.scheduled > 0 || active(&View::Scheduled) {
+        list_box.append(&nav(
+            View::Scheduled,
+            "x-office-calendar-symbolic",
+            "Scheduled",
+            "Mail waiting to send",
+            status.scheduled.max(0) as usize,
+            false,
+            active(&View::Scheduled),
+        ));
+    }
+    if status.follow_ups > 0 || active(&View::FollowUps) {
+        list_box.append(&nav(
+            View::FollowUps,
+            "document-open-recent-symbolic",
+            "Follow-ups",
+            "Conversations you'll hear about if nobody answers",
+            status.follow_ups.max(0) as usize,
+            false,
+            active(&View::FollowUps),
+        ));
     }
 
     // Pinned folders, in the order they were pinned.
     let pins: Vec<&Mailbox> =
         prefs::get().pinned.iter().filter_map(|k| mailboxes.iter().find(|m| prefs::pin_key(&m.account, &m.name) == *k)).collect();
     if !pins.is_empty() {
-        let heading = group_label("Pinned", false, false);
+        list_box.append(&rail_divider("pinned"));
+        let heading = nyx_ui::sidebar::group_label("Pinned", false);
         nyx_ui::sidebar::set_section(&heading, "pinned");
         list_box.append(&heading);
         for m in pins {
             let address = accounts.iter().find(|a| a.id == m.account).map(|a| a.address.as_str()).unwrap_or("");
             let tooltip = if several { format!("{} · {address}", m.name) } else { m.name.clone() };
             let v = View::Mailbox(m.id);
-            let button = nav_button(role_icon(m.role), &m.label(), &tooltip, m.unread, active(&v));
-            button.connect_clicked(move |_| show_view(v.clone()));
+            let button = nav(v.clone(), role_icon(m.role), &m.label(), &tooltip, m.unread.max(0) as usize, false, active(&v));
             crate::menus::attach_mailbox(&button, m);
             list_box.append(&button);
         }
     }
 
-    let collapsed = prefs::get().collapsed_accounts;
-    for (i, account) in accounts.iter().enumerate() {
-        let folded = collapsed.contains(&account.id);
-        // Each account in the next swatch, in the accounts' order.
-        let heading = account_header(account, i == 0, folded);
-        nyx_ui::sidebar::set_section(&heading, &nyx_ui::sidebar::rotating_section(i));
-        list_box.append(&heading);
-        if folded {
-            continue;
-        }
-        let mine: Vec<&Mailbox> = mailboxes
+    // The classic mailboxes, folded under each account (and, with several,
+    // every account's together first).
+    let keyed = |role: Role| match role {
+        Role::Sent => " (3)",
+        Role::Archive => " (4)",
+        _ => "",
+    };
+    let mut swatch = 0;
+    if several {
+        let folders: Vec<Folder> = ROLES
             .iter()
-            .filter(|m| m.account == account.id)
-            .filter(|m| !matches!(m.role, Some(Role::All) | Some(Role::Flagged)))
-            .filter(|m| several && m.role == Some(Role::Inbox) || m.role.is_none())
+            .filter(|r| **r == Role::Inbox || mailboxes.iter().any(|m| m.role == Some(**r)))
+            .map(|&role| Folder {
+                view: View::All(role),
+                icon: role_icon(Some(role)),
+                name: role_name(role).into(),
+                tooltip: format!("{} in every account{}", role_name(role), keyed(role)),
+                count: role_count(role, mailboxes.iter().filter(|m| m.role == Some(role)).map(|m| m.unread).sum()),
+                depth: 0,
+                menu: FolderMenu::Role(role),
+            })
             .collect();
-        for m in mine {
+        folder_group(&list_box, "all", "All accounts", &nyx_ui::sidebar::rotating_section(swatch), &folders, None, &active);
+        swatch += 1;
+    }
+    for account in &accounts {
+        let mine: Vec<&Mailbox> = mailboxes.iter().filter(|m| m.account == account.id).collect();
+        let mut folders: Vec<Folder> = Vec::new();
+        for role in ROLES {
+            let Some(m) = mine.iter().find(|m| m.role == Some(role)) else { continue };
+            // With one account its mailboxes are every account's (the keys open them).
+            let (view, menu) =
+                if several { (View::Mailbox(m.id), FolderMenu::Mailbox((*m).clone())) } else { (View::All(role), FolderMenu::Role(role)) };
+            folders.push(Folder {
+                view,
+                icon: role_icon(Some(role)),
+                name: role_name(role).into(),
+                tooltip: format!("{}{}", role_name(role), if several { "" } else { keyed(role) }),
+                count: role_count(role, m.unread),
+                depth: 0,
+                menu,
+            });
+        }
+        for m in mine.iter().filter(|m| m.role.is_none()) {
             // Indented under parents that are shown (not Gmail's "[Gmail]").
             let depth = m
                 .delimiter
@@ -1414,33 +1655,27 @@ pub(crate) fn rebuild_nav() {
                 .filter(|d| !d.is_empty())
                 .map(|d| {
                     let parts: Vec<&str> = m.name.split(d).collect();
-                    (1..parts.len())
-                        .filter(|i| mailboxes.iter().any(|p| p.account == m.account && p.name == parts[..*i].join(d)))
-                        .count()
+                    (1..parts.len()).filter(|i| mine.iter().any(|p| p.name == parts[..*i].join(d))).count()
                 })
                 .unwrap_or(0);
-            let v = View::Mailbox(m.id);
-            let button = nav_button(role_icon(m.role), &m.label(), &m.name, m.unread, active(&v));
-            if let Some(content) = button.child() {
-                content.set_margin_start((depth.min(4) * 14) as i32);
-            }
-            button.connect_clicked(move |_| show_view(v.clone()));
-            crate::menus::attach_mailbox(&button, m);
-            list_box.append(&button);
+            folders.push(Folder {
+                view: View::Mailbox(m.id),
+                icon: "folder-symbolic",
+                name: m.label(),
+                tooltip: m.name.clone(),
+                count: m.unread,
+                depth,
+                menu: FolderMenu::Mailbox((*m).clone()),
+            });
         }
+        let section = nyx_ui::sidebar::rotating_section(swatch);
+        swatch += 1;
+        folder_group(&list_box, &account.id, &account.address, &section, &folders, Some(account), &active);
     }
     if accounts.is_empty() {
-        list_box.append(&group_label("Accounts", false, true));
+        list_box.append(&nyx_ui::sidebar::group_label_with_add("Accounts", false, "Add an account", open_online_accounts));
     }
-
-    if let Some(foot) = ui.borrow().nav.last_child().and_downcast::<gtk::Box>() {
-        while let Some(child) = foot.first_child() {
-            foot.remove(&child);
-        }
-        if let Some(address) = compose::send_from() {
-            foot.append(&send_from_row(&address));
-        }
-    }
+    list_box.append(&ui.borrow().foot);
 
     let nav = ui.borrow().nav.clone();
     apply_compact(&nav, NARROW.with(|n| n.get()) || prefs::get().sidebar_collapsed);
@@ -1450,11 +1685,16 @@ pub(crate) fn rebuild_nav() {
 
 fn install_icons() {
     let dir = nyx_core::paths::cache_dir().join("icons");
-    let name = "nyx-mail-archive-symbolic.svg";
-    let svg = include_str!("../data/nyx-mail-archive-symbolic.svg");
-    let path = dir.join(name);
-    if std::fs::read_to_string(&path).ok().as_deref() != Some(svg) {
-        let _ = nyx_core::cmd::atomic_write(&path, svg);
+    let icons = [
+        ("nyx-mail-archive-symbolic.svg", include_str!("../data/nyx-mail-archive-symbolic.svg")),
+        ("nyx-mail-filter-symbolic.svg", include_str!("../data/nyx-mail-filter-symbolic.svg")),
+        ("nyx-mail-flag-symbolic.svg", include_str!("../data/nyx-mail-flag-symbolic.svg")),
+    ];
+    for (name, svg) in icons {
+        let path = dir.join(name);
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(svg) {
+            let _ = nyx_core::cmd::atomic_write(&path, svg);
+        }
     }
     if let Some(display) = gdk::Display::default() {
         gtk::IconTheme::for_display(&display).add_search_path(dir);
@@ -1480,7 +1720,7 @@ fn build(app: &gtk::Application) {
     let nav = gtk::Box::new(gtk::Orientation::Vertical, 0);
     nav.add_css_class("settings-navigation");
     nav.set_hexpand(false);
-    let nav_list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let nav_list = gtk::Box::new(gtk::Orientation::Vertical, 1);
     nav_list.set_hexpand(false);
     let nav_scroll = gtk::ScrolledWindow::builder()
         .hexpand(false)
@@ -1489,26 +1729,30 @@ fn build(app: &gtk::Application) {
         .vexpand(true)
         .child(&nav_list)
         .build();
-    // The sidebar's own toggle, at its top right (centred on the narrow rail).
-    let nav_top = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    nav_top.add_css_class("nav-top");
-    let collapse = nyx_ui::widgets::bar_button("sidebar-show-symbolic", "Collapse the sidebar (Ctrl+B)");
-    collapse.add_css_class("nav-toggle");
-    collapse.set_hexpand(true);
-    collapse.set_halign(gtk::Align::End);
-    collapse.connect_clicked(|_| toggle_sidebar());
-    nav_top.append(&collapse);
-    nav.append(&nav_top);
     nav.append(&nav_scroll);
-    let nav_foot = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    nav_foot.add_css_class("nav-foot");
-    nav.append(&nav_foot);
+    // How the mail is, under the folders; a click checks for more.
+    let foot = gtk::Button::new();
+    foot.add_css_class("nav-item");
+    foot.add_css_class("nav-status");
+    let foot_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let foot_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
+    foot_icon.add_css_class("status-icon");
+    foot_row.append(&foot_icon);
+    let foot_label = widgets::label("", "status-text");
+    foot_label.add_css_class("compact-hide");
+    foot_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    foot_label.set_hexpand(true);
+    foot_row.append(&foot_label);
+    foot.set_child(Some(&foot_row));
+    foot.update_property(&[gtk::accessible::Property::Label("Check for mail")]);
+    foot.connect_clicked(|_| check_mail());
 
     let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Search mail  (Ctrl+F)"));
+    search.set_placeholder_text(Some("Search mail"));
     search.update_property(&[gtk::accessible::Property::Label("Search mail")]);
     search.add_css_class("bar-search");
-    search.set_width_chars(40);
+    search.set_width_chars(30);
+    search.set_max_width_chars(40);
     search.connect_search_changed(|_| {
         if let Some(ui) = ui() {
             ui.borrow_mut().limit = PAGE;
@@ -1609,36 +1853,56 @@ fn build(app: &gtk::Application) {
     list_column.append(&list_bar);
     list_column.append(&list_stack);
 
-    // The reading column.
-    let reader_bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    // The reading column: what to do with it, labelled, then filing it away.
+    let reader_bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     reader_bar.add_css_class("toolbar");
     reader_bar.add_css_class("reader-bar");
-    let buttons: [(&str, &str, fn()); 8] = [
-        ("mail-reply-sender-symbolic", "Reply (R)", || reply(false)),
-        ("mail-reply-all-symbolic", "Reply to all (A)", || reply(true)),
-        ("mail-forward-symbolic", "Forward (F)", forward),
-        ("nyx-mail-archive-symbolic", "Archive (E)", archive),
-        ("mail-mark-junk-symbolic", "Junk or not junk (!)", junk),
-        ("user-trash-symbolic", "Move to Trash (#)", trash),
-        ("mail-unread-symbolic", "Mark read or unread (U)", toggle_unread),
-        ("starred-symbolic", "Star or unstar (S)", toggle_star),
-    ];
-    let gap = || {
-        let gap = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        gap.add_css_class("bar-gap");
-        gap
+    let mut bar_labels = Vec::new();
+    let labelled = |icon: &str, text: &str, tip: &str, labels: &mut Vec<gtk::Label>| {
+        let b = gtk::Button::new();
+        b.add_css_class("bar-labelled");
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        row.append(&gtk::Image::from_icon_name(icon));
+        let label = gtk::Label::new(Some(text));
+        row.append(&label);
+        labels.push(label);
+        b.set_child(Some(&row));
+        b.set_tooltip_text(Some(tip));
+        b.update_property(&[gtk::accessible::Property::Label(text)]);
+        b
     };
-    for (i, (icon, tip, run)) in buttons.into_iter().enumerate() {
-        if i == 3 || i == 6 {
-            reader_bar.append(&gap());
-        }
-        let b = widgets::icon_button(icon, tip);
-        b.connect_clicked(move |_| run());
-        reader_bar.append(&b);
-    }
-    reader_bar.append(&gap());
+    let back = gtk::Button::new();
+    back.add_css_class("flat");
+    back.add_css_class("reader-back");
+    let back_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    back_row.append(&gtk::Image::from_icon_name("go-previous-symbolic"));
+    let back_label = gtk::Label::new(None);
+    back_row.append(&back_label);
+    back.set_child(Some(&back_row));
+    back.set_visible(false);
+    back.connect_clicked(|_| back_to_page());
+    reader_bar.append(&back);
+    let reply_button = labelled("mail-reply-sender-symbolic", "Reply", "Reply (R)", &mut bar_labels);
+    reply_button.add_css_class("suggested-action");
+    reply_button.connect_clicked(|_| reply(false));
+    reader_bar.append(&reply_button);
+    let reply_all = labelled("mail-reply-all-symbolic", "Reply all", "Reply to all (A)", &mut bar_labels);
+    reply_all.connect_clicked(|_| reply(true));
+    reader_bar.append(&reply_all);
+    let forward_button = labelled("mail-forward-symbolic", "Forward", "Forward (F)", &mut bar_labels);
+    forward_button.connect_clicked(|_| forward());
+    reader_bar.append(&forward_button);
+    let gap = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    gap.set_hexpand(true);
+    reader_bar.append(&gap);
+    let archive_button = widgets::icon_button("nyx-mail-archive-symbolic", "Archive (E)");
+    archive_button.connect_clicked(|_| archive());
+    reader_bar.append(&archive_button);
     let snooze = organize::snooze_button();
     reader_bar.append(&snooze);
+    let trash_button = widgets::icon_button("user-trash-symbolic", "Move to Trash (#)");
+    trash_button.connect_clicked(|_| trash());
+    reader_bar.append(&trash_button);
     reader_bar.append(&organize::more_button());
     let reader_column = gtk::Box::new(gtk::Orientation::Vertical, 0);
     reader_column.set_hexpand(true);
@@ -1648,26 +1912,49 @@ fn build(app: &gtk::Application) {
     let panes = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     panes.set_vexpand(true);
     panes.append(&list_column);
-    panes.append(&nyx_ui::frame::pane_line(gtk::Orientation::Vertical));
+    let pane_line = nyx_ui::frame::pane_line(gtk::Orientation::Vertical);
+    panes.append(&pane_line);
     panes.append(&reader_column);
+    let page_slot = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    page_slot.set_vexpand(true);
+    let main_stack = gtk::Stack::new();
+    main_stack.set_vexpand(true);
+    main_stack.add_named(&panes, Some("panes"));
+    main_stack.add_named(&page_slot, Some("page"));
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.add_css_class("settings-content");
     content.set_hexpand(true);
     content.append(&banners);
-    content.append(&panes);
+    content.append(&main_stack);
 
-    // The header: the app and the folder you're in, the sidebar toggle, search,
-    // and checking and writing mail.
+    // The header: the app and the sidebar's toggle, search, writing mail and Settings.
     let header = nyx_ui::chrome::app_header(&window, "mail-unread-symbolic", "Mail");
-    header.center.append(&search);
-    let check = nyx_ui::widgets::bar_button("view-refresh-symbolic", "Check for mail (Ctrl+R)");
-    check.connect_clicked(|_| check_mail());
-    header.end.append(&check);
-    let new = nyx_ui::widgets::bar_button("mail-message-new-symbolic", "New message (C)");
-    new.add_css_class("accent-action");
-    new.connect_clicked(|_| compose::open(Start::New));
-    header.end.append(&new);
+    let collapse = nyx_ui::widgets::bar_button("sidebar-show-symbolic", "Collapse the sidebar (Ctrl+B)");
+    collapse.connect_clicked(|_| toggle_sidebar());
+    header.start.append(&collapse);
+    let search_box = gtk::Overlay::new();
+    search_box.set_child(Some(&search));
+    let hint = widgets::label("Ctrl F", "key-hint");
+    hint.set_halign(gtk::Align::End);
+    hint.set_valign(gtk::Align::Center);
+    hint.set_margin_end(10);
+    hint.set_can_target(false);
+    search_box.add_overlay(&hint);
+    search.connect_changed(move |s| hint.set_visible(s.text().is_empty()));
+    header.center.append(&search_box);
+    let compose_button = gtk::Button::new();
+    compose_button.add_css_class("new-button");
+    let face = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    face.append(&gtk::Image::from_icon_name("mail-message-new-symbolic"));
+    face.append(&gtk::Label::new(Some("Compose")));
+    face.append(&widgets::label("Ctrl N", "key-hint"));
+    compose_button.set_child(Some(&face));
+    compose_button.set_valign(gtk::Align::Center);
+    compose_button.set_tooltip_text(Some("New message (C or Ctrl+N)"));
+    compose_button.update_property(&[gtk::accessible::Property::Label("Compose")]);
+    compose_button.connect_clicked(|_| compose::open(Start::New));
+    header.end.append(&compose_button);
     header.end.append(&nyx_ui::chrome::settings_button(settings_dialog::open));
 
     let frame = nyx_ui::frame::AppFrame::new(&header.root);
@@ -1696,9 +1983,21 @@ fn build(app: &gtk::Application) {
         overlay: overlay.clone(),
         nav: nav.clone(),
         nav_list,
-        header,
+        foot_icon,
+        foot_label,
+        foot,
+        compose: compose_button,
         search,
         banners,
+        main_stack,
+        page_slot,
+        page_shows: String::new(),
+        list_column,
+        pane_line,
+        back,
+        back_label,
+        bar_labels,
+        reading: false,
         list_title,
         store,
         selection,
@@ -1740,6 +2039,7 @@ fn build(app: &gtk::Application) {
             nav.add_css_class("sized");
             NARROW.with(|n| n.set(narrow));
             apply_compact(&nav, narrow || prefs::get().sidebar_collapsed);
+            refresh_mode();
         }
     };
     let aw = apply_width.clone();
@@ -1760,25 +2060,6 @@ fn build(app: &gtk::Application) {
     });
 }
 
-/// The sidebar's foot: who new mail is from. Settings → Writing changes it.
-fn send_from_row(address: &str) -> gtk::Box {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    row.add_css_class("send-from");
-    row.set_tooltip_text(Some("New mail is sent from this address"));
-    let initial = address.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
-    let avatar = widgets::label(&initial, "send-from-avatar");
-    avatar.set_xalign(0.5);
-    avatar.set_valign(gtk::Align::Center);
-    row.append(&avatar);
-    let label = widgets::label(address, "send-from-address");
-    label.set_xalign(0.0);
-    label.set_hexpand(true);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    label.add_css_class("compact-hide");
-    row.append(&label);
-    row
-}
-
 /// Clear the search; the field stays in the header.
 fn leave_search(search: &gtk::SearchEntry) {
     search.set_text("");
@@ -1787,23 +2068,13 @@ fn leave_search(search: &gtk::SearchEntry) {
     }
 }
 
+/// The icon rail (or the full sidebar): nyx_ui's compact mode, and the rail's
+/// own marks (`compact-show`) where groups start.
 fn apply_compact(nav: &gtk::Box, compact: bool) {
-    if compact {
-        nav.add_css_class("compact");
-    } else {
-        nav.remove_css_class("compact");
-    }
+    nyx_ui::sidebar::set_compact(nav, compact);
     fn walk(widget: &gtk::Widget, compact: bool) {
-        if widget.has_css_class("nav-toggle") {
-            widget.set_halign(if compact { gtk::Align::Center } else { gtk::Align::End });
-        }
-        if widget.has_css_class("compact-hide") {
-            widget.set_visible(!compact);
-        }
-        if widget.has_css_class("nav-item")
-            && let Some(content) = widget.downcast_ref::<gtk::Button>().and_then(|b| b.child())
-        {
-            content.set_halign(if compact { gtk::Align::Center } else { gtk::Align::Fill });
+        if widget.has_css_class("compact-show") {
+            widget.set_visible(compact);
         }
         let mut child = widget.first_child();
         while let Some(next) = child {
@@ -1850,6 +2121,10 @@ fn install_keys(window: &gtk::ApplicationWindow, search: &gtk::SearchEntry) {
                 rebuild_nav();
                 return glib::Propagation::Stop;
             }
+            if ui().is_some_and(|u| on_page(&u.borrow()) && u.borrow().reading) {
+                back_to_page();
+                return glib::Propagation::Stop;
+            }
             return glib::Propagation::Proceed;
         }
         if typing(win.upcast_ref()) {
@@ -1883,7 +2158,7 @@ fn install_keys(window: &gtk::ApplicationWindow, search: &gtk::SearchEntry) {
                     snooze.popup();
                 }
             }
-            gdk::Key::_1 => show_view(View::All(Role::Inbox)),
+            gdk::Key::_1 => show_view(View::Kind(Kind::Imbox)),
             gdk::Key::_2 => show_view(View::All(Role::Drafts)),
             gdk::Key::_3 => show_view(View::All(Role::Sent)),
             gdk::Key::_4 => show_view(View::All(Role::Archive)),

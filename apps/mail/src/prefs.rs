@@ -30,8 +30,14 @@ pub struct Prefs {
     pub show_previews: bool,
     /// After Archive, Trash or Junk: `next`, `previous` or `list`.
     pub after_moving: String,
-    /// Accounts whose folders are folded away in the sidebar.
-    pub collapsed_accounts: Vec<String>,
+    /// Accounts whose folders show in the sidebar (they're folded away under
+    /// their heading otherwise); `all` for the every-account mailboxes.
+    pub open_accounts: Vec<String>,
+    /// The Imbox shows only what was seen before (not what's new first).
+    pub imbox_seen: bool,
+    /// How the Imbox is shown: `cards` (a page of its own; a conversation opens
+    /// over it) or `list` (the list beside the reader, like Paper Trail).
+    pub imbox_layout: String,
     /// Folders in the sidebar's Pinned group, as `account` + `\u{1f}` + IMAP name.
     pub pinned: Vec<String>,
     /// Show a mailbox's first conversation in the reading pane on going to it.
@@ -58,7 +64,7 @@ impl Default for Prefs {
             reduce_motion: false,
             sidebar_collapsed: false,
             glow: true,
-            last_section: "inbox".into(),
+            last_section: "imbox".into(),
             mark_read: true,
             remote_senders: Vec::new(),
             signature: String::new(),
@@ -67,7 +73,9 @@ impl Default for Prefs {
             images_always: false,
             show_previews: true,
             after_moving: "next".into(),
-            collapsed_accounts: Vec::new(),
+            open_accounts: Vec::new(),
+            imbox_seen: false,
+            imbox_layout: "cards".into(),
             pinned: Vec::new(),
             open_first: true,
             aliases: Vec::new(),

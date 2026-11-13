@@ -11,6 +11,7 @@ mod reader;
 mod reminders;
 mod settings_dialog;
 mod settings_page;
+mod sorted;
 mod suggest;
 mod theme;
 mod widgets;

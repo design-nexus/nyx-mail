@@ -13,6 +13,40 @@ pub fn icon_button(icon: &str, tooltip: &str) -> gtk::Button {
 
 use gtk::prelude::*;
 
+/// The swatches avatars take, by a hash of who it is (the theme colours them).
+const AVATAR_SWATCHES: [&str; 8] = ["blue", "violet", "green", "pink", "coral", "teal", "red", "amber"];
+
+/// "Sam Rivera" → "SR", "GitHub" → "G".
+pub fn initials(name: &str) -> String {
+    let words: Vec<&str> = name.split_whitespace().filter(|w| w.chars().any(char::is_alphanumeric)).collect();
+    let first = |w: &str| w.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect::<String>());
+    match words.as_slice() {
+        [] => "?".into(),
+        [one] => first(one).unwrap_or_else(|| "?".into()),
+        [a, .., b] => format!("{}{}", first(a).unwrap_or_default(), first(b).unwrap_or_default()),
+    }
+}
+
+/// A round avatar `size` px across: someone's initials on a swatch picked by
+/// their address (or name), so a person keeps their colour.
+pub fn avatar(name: &str, key: &str, size: i32) -> gtk::Box {
+    let hash = key.to_lowercase().bytes().fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
+    let swatch = AVATAR_SWATCHES[hash as usize % AVATAR_SWATCHES.len()];
+    let disc = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    disc.add_css_class("mail-avatar");
+    disc.add_css_class(&format!("section-swatch-{swatch}"));
+    disc.add_css_class(&format!("size-{}", if size >= 40 { "l" } else if size >= 32 { "m" } else { "s" }));
+    disc.set_size_request(size, size);
+    disc.set_valign(gtk::Align::Start);
+    disc.set_halign(gtk::Align::Start);
+    disc.set_hexpand(false);
+    let text = gtk::Label::new(Some(&initials(name)));
+    text.set_hexpand(true);
+    text.set_halign(gtk::Align::Center);
+    disc.append(&text);
+    disc
+}
+
 pub struct Page {
     pub root: gtk::ScrolledWindow,
     pub body: gtk::Box,

@@ -213,6 +213,7 @@ fn redraw(scroll_to_end: bool) {
         }
         body.append(&card);
     }
+    body.append(&quick_reply(&messages));
     if scroll_to_end && messages.len() > 1 {
         // Start at the first unread message, else the newest.
         let target = focus.or_else(|| body.last_child());
@@ -232,21 +233,36 @@ fn sender(m: &MessageRow) -> String {
     if m.from_name.trim().is_empty() { m.from_addr.clone() } else { m.from_name.clone() }
 }
 
-fn avatar(name: &str) -> gtk::Label {
-    let initial: String =
-        name.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "?".into());
-    let a = widgets::label(&initial, "avatar");
-    a.set_valign(gtk::Align::Start);
-    a.set_xalign(0.5);
-    a.set_justify(gtk::Justification::Center);
-    a
+/// "Reply to Sam…" under the conversation: a click starts the reply.
+fn quick_reply(messages: &[MessageRow]) -> gtk::Button {
+    let own = data::own_addresses();
+    let them = messages.iter().rev().find(|m| !own.iter().any(|a| a.eq_ignore_ascii_case(&m.from_addr))).or(messages.last());
+    let name = them.map(sender).unwrap_or_default();
+    let first = name.split_whitespace().next().unwrap_or(&name).trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+    let button = gtk::Button::new();
+    button.add_css_class("quick-reply");
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let me = compose::send_from().unwrap_or_default();
+    let avatar = widgets::avatar(&me, &me, 28);
+    avatar.set_valign(gtk::Align::Center);
+    row.append(&avatar);
+    let text = widgets::label(if first.is_empty() { "Reply…".into() } else { format!("Reply to {first}…") }.as_str(), "quick-reply-text");
+    text.set_hexpand(true);
+    text.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    row.append(&text);
+    row.append(&widgets::label("R", "key-hint"));
+    button.set_child(Some(&row));
+    button.set_tooltip_text(Some("Reply (R)"));
+    button.update_property(&[gtk::accessible::Property::Label("Reply")]);
+    button.connect_clicked(|_| window::reply(false));
+    button
 }
 
 fn collapsed_card(m: &MessageRow) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     card.add_css_class("message-card");
     card.add_css_class("collapsed");
-    card.append(&avatar(&sender(m)));
+    card.append(&widgets::avatar(&sender(m), &m.from_addr, 26));
     let name = widgets::label(&sender(m), "message-from");
     name.set_xalign(0.0);
     card.append(&name);
@@ -272,7 +288,7 @@ fn message_card(m: &MessageRow) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
     card.add_css_class("message-card");
     let head = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    head.append(&avatar(&sender(m)));
+    head.append(&widgets::avatar(&sender(m), &m.from_addr, 36));
     let who = gtk::Box::new(gtk::Orientation::Vertical, 2);
     who.set_hexpand(true);
     let from = gtk::Label::new(None);
@@ -296,10 +312,10 @@ fn message_card(m: &MessageRow) -> gtk::Box {
     }
     head.append(&who);
     if m.flags & flags::FLAGGED != 0 {
-        let star = gtk::Image::from_icon_name("starred-symbolic");
+        let star = gtk::Image::from_icon_name("nyx-mail-flag-symbolic");
         star.add_css_class("flag");
         star.set_valign(gtk::Align::Start);
-        star.set_tooltip_text(Some("Starred"));
+        star.set_tooltip_text(Some("Set aside"));
         head.append(&star);
     }
     let date = widgets::label(&window::when_text(m.date, true), "message-date");

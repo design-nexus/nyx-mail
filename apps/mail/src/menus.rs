@@ -71,7 +71,7 @@ fn conversation() -> Vec<MenuEntry> {
         keyed("Forward", "F", window::forward),
         separator(),
         keyed(if unread { "Mark as read" } else { "Mark as unread" }, "U", window::toggle_unread),
-        keyed(if starred { "Unstar" } else { "Star" }, "S", window::toggle_star),
+        keyed(if starred { "Put back" } else { "Set aside" }, "S", window::toggle_star),
     ];
 
     let mut snooze: Vec<MenuEntry> =
@@ -284,7 +284,7 @@ pub fn attach_account(header: &gtk::Box, account: &AccountRow, folded: bool) {
                         move || engine::set_account_enabled(&id, true),
                     );
                 }),
-                item("Online accounts…", window::open_online_accounts),
+                item("Add or manage accounts…", window::open_online_accounts),
             ],
         );
     });

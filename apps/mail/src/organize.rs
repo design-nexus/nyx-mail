@@ -12,6 +12,7 @@ use crate::window;
 use chrono::{Datelike, Duration, Local, NaiveTime, TimeZone, Timelike, Weekday};
 use gtk::prelude::*;
 use nyx_mail_core::db::{MessageRow, Scheduled, SenderRow};
+use nyx_mail_core::flags;
 use nyx_mail_core::organize::Kind;
 use serde_json::json;
 
@@ -138,13 +139,14 @@ fn fill_snooze(button: &gtk::MenuButton) {
     menu(button, items);
 }
 
-/// The reading pane's More button: follow-ups and the sender.
+/// The reading pane's More button: setting aside, read, junk, follow-ups and
+/// the sender.
 pub fn more_button() -> gtk::MenuButton {
     let button = gtk::MenuButton::new();
     button.set_icon_name("view-more-symbolic");
     button.set_has_frame(false);
-    button.set_tooltip_text(Some("Follow up, sender"));
-    button.update_property(&[gtk::accessible::Property::Label("More: follow up, sender")]);
+    button.set_tooltip_text(Some("Set aside, mark unread, junk, follow up, sender"));
+    button.update_property(&[gtk::accessible::Property::Label("More")]);
     button.add_css_class("flat");
     button.add_css_class("icon-button");
     button.set_create_popup_func(fill_more);
@@ -157,6 +159,14 @@ fn fill_more(button: &gtk::MenuButton) {
         menu(button, items);
         return;
     };
+    let messages = reader::messages();
+    let aside = messages.iter().any(|m| m.flags & flags::FLAGGED != 0);
+    let unread = messages.iter().any(|m| m.flags & flags::SEEN == 0);
+    let junk = window::current_role() == Some(nyx_mail_core::db::Role::Junk);
+    items.push((if aside { "Put back (S)" } else { "Set aside (S)" }.into(), Box::new(window::toggle_star)));
+    items.push((if unread { "Mark as read (U)" } else { "Mark as unread (U)" }.into(), Box::new(window::toggle_unread)));
+    items.push((if junk { "Not junk (!)" } else { "Move to Junk (!)" }.into(), Box::new(window::junk)));
+    items.push((String::new(), Box::new(|| {})));
     for (label, due) in follow_up_times() {
         let id = newest.id;
         items.push((

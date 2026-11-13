@@ -309,6 +309,12 @@ fn snoozes_follow_ups_and_scheduled_mail() {
     assert_eq!(db.wake_snoozes(500).unwrap(), vec![thread.clone()]);
     assert_eq!(db.list(&[inbox], 10, 0).unwrap().len(), 1);
 
+    // Set aside: only conversations with a flagged message.
+    let flagged = Filter { flagged: true, ..Filter::default() };
+    assert!(db.list_with(&[inbox], &flagged, 10, 0).unwrap().is_empty());
+    db.conn().execute("UPDATE messages SET flags = flags | 2 WHERE uid = 1", []).unwrap();
+    assert_eq!(db.list_with(&[inbox], &flagged, 10, 0).unwrap().len(), 1);
+
     // Follow-ups: one answered by Sam, one only by me.
     let own = vec!["me@example.com".to_string()];
     db.follow_up(&thread, "acc", "Later", 10, 100).unwrap();
