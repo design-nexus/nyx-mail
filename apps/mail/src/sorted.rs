@@ -153,6 +153,10 @@ fn imbox(items: &[(u32, &ListItem)], more: bool) -> gtk::Box {
             list.append(&person_card(*pos, c));
         }
     }
+    if seen_only && seen.is_empty() {
+        list.append(&heading("Previously seen", "seen first"));
+        list.append(&line("Nothing seen yet. Switch to New for you to read what's waiting.", "sorted-none"));
+    }
     if !seen.is_empty() {
         list.append(&heading("Previously seen", if seen_only { "seen first" } else { "seen" }));
         for (pos, c) in &seen {
