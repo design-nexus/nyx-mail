@@ -1,6 +1,6 @@
 # Mail
 
-Mail for Omarchy: your Google, Microsoft 365, Outlook.com, Fastmail, iCloud and other mail accounts in one inbox,
+Mail for Omarchy: your Gmail, iCloud, Fastmail and other IMAP mail accounts in one inbox,
 readable offline and driven from the keyboard. Part of the
 [Nyx](https://github.com/design-nexus/nyx) apps.
 
@@ -15,8 +15,11 @@ readable offline and driven from the keyboard. Part of the
 - Works offline and sends your changes when you're back online
 - Follows your Omarchy theme; works from the keyboard and tiled at half-screen
 
-Accounts are added in **Settings → Online Accounts** with Mail switched on. Mail never
-stores passwords or sign-ins; they stay there. Your messages are kept on this computer in
+Accounts are added in **Settings → Online Accounts** with Mail switched on, with an app
+password from the provider (Gmail and iCloud make them in their security settings).
+Microsoft accounts, and signing in to Google directly, need an OAuth client you register
+with them yourself (Online Accounts links the steps); work and school Microsoft 365
+accounts aren't supported. Mail never stores passwords or sign-ins; they stay there. Your messages are kept on this computer in
 `~/.local/share/nyx-mail/`. Sorting, snoozes and scheduled sends happen on this
 computer, so it has to be on for a scheduled message to go out.
 
