@@ -1213,6 +1213,7 @@ fn refresh_readout() {
         Some(s) if s.accounts.iter().any(|a| a.error.is_some()) => {
             ("dialog-warning-symbolic", "warn", "An account needs attention".to_string())
         }
+        Some(s) if s.accounts.is_empty() => ("mail-unread-symbolic", "", "No accounts yet".to_string()),
         Some(_) => match last {
             Some(t) if now() - t < 15 * 60 => ("object-select-symbolic", "ok", "Up to date".to_string()),
             Some(t) => ("object-select-symbolic", "", format!("Updated {}", when_text(t, false))),

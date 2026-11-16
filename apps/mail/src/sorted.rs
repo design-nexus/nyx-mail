@@ -132,6 +132,15 @@ fn imbox(items: &[(u32, &ListItem)], more: bool) -> gtk::Box {
     switch.add_css_class("page-switch");
     // Without the Screener nobody was asked for a yes: it's who writes to you.
     let subtitle = if data::screener_on() { "People and things you said yes to" } else { "People writing to you" };
+    if items.is_empty() && data::accounts().is_empty() {
+        let body = empty(
+            "mail-unread-symbolic",
+            "No mail accounts",
+            "Add an account in Settings → Online Accounts and switch on Mail.",
+            Some(("Add an account", Box::new(window::open_online_accounts))),
+        );
+        return frame("Imbox", subtitle, Some(switch.upcast()), &body);
+    }
     if items.is_empty() {
         let body = empty(
             "starred-symbolic",
