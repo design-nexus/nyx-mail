@@ -6,8 +6,7 @@ flowchart LR
   UI -.read only.-> Db[(mail.sqlite)]
   Maild --> Db
   Maild --> Store[(store/*.eml)]
-  Maild --> Acc[nyx-accounts credentials]
-  Acc -->|in-process| GOA[goa-daemon]
+  Maild --> Acc[Nyx Online Accounts: private credential sessions]
   Maild -->|IMAP / SMTP over TLS| Servers[(Servers)]
   Maild -->|Microsoft Graph, HTTPS| M365[(Microsoft 365)]
   UI --> Web[WebKitGTK 6 message view]
@@ -37,10 +36,12 @@ flowchart LR
 | Credentials | `nyx-accounts` (`credentials` feature) |
 | Backoff | `nyx-sync::backoff` |
 
-TLS is required. Server settings come from the GOA `Mail` interface; XOAUTH2 when GOA
-says so, otherwise the account password from GOA. Credentials are fetched for each
-connection and dropped. Microsoft 365 and Outlook.com accounts (GOA `ms_graph`) have no
-IMAP settings and use Microsoft Graph with GOA's access token instead.
+TLS is required. Accounts and their server settings come from Nyx Online Accounts (the
+accounts with Mail turned on); credentials come from its private credential sessions:
+XOAUTH2 with an access token for Google and personal Microsoft accounts, the account's
+password otherwise. They're fetched for each connection and dropped. Microsoft 365 and
+Outlook.com accounts have no IMAP settings and use Microsoft Graph with an access token
+instead.
 
 ## Sync
 
@@ -52,7 +53,7 @@ IMAP settings and use Microsoft Graph with GOA's access token instead.
   once, replayed against the server with backoff. A server value that changed since the
   op was queued is a conflict: the server wins for flags, and moves of vanished messages
   are dropped and reported.
-- Account removed in GOA: sync stops; the UI offers to delete the local copy (Undo toast).
+- Account removed in Online Accounts: sync stops; the UI offers to delete the local copy (Undo toast).
 
 ## Microsoft 365 (`graph`)
 
