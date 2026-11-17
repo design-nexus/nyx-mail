@@ -1950,12 +1950,13 @@ dependencies = [
 [[package]]
 name = "nyx-accounts-service"
 version = "0.1.0"
-source = "git+https://github.com/design-nexus/nyx-accounts.git?rev=afdc1482cb910746f942556090870d3ec083dd34#afdc1482cb910746f942556090870d3ec083dd34"
+source = "git+https://github.com/design-nexus/nyx-accounts.git?rev=446c48debeeb2b6f0d6a81240b3bbe34e88fe3c5#446c48debeeb2b6f0d6a81240b3bbe34e88fe3c5"
 dependencies = [
  "anyhow",
  "futures-util",
  "gio",
  "glib",
+ "nyx-peer",
  "oauth2",
  "reqwest",
  "roxmltree",

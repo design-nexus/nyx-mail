@@ -15,7 +15,7 @@ path = "src/main.rs"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 glib = "0.22"
 gtk = { version = "0.11", package = "gtk4", features = ["v4_18"] }
-nyx-accounts = { package = "nyx-accounts-service", git = "https://github.com/design-nexus/nyx-accounts.git", rev = "afdc1482cb910746f942556090870d3ec083dd34" }
+nyx-accounts = { package = "nyx-accounts-service", git = "https://github.com/design-nexus/nyx-accounts.git", rev = "446c48debeeb2b6f0d6a81240b3bbe34e88fe3c5" }
 nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "a258c315f056ac649586fdb55e98613056221411" }
 nyx-share-client = { git = "https://github.com/design-nexus/nyx-share.git", rev = "9c0b1418af2296be13e2ec7c1de2e8e1c6a0341b" }
 nyx-mail-core = { path = "../../crates/nyx-mail-core" }
